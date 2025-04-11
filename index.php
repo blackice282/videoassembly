@@ -49,6 +49,7 @@ function concatenate_videos($video_files, $output_path) {
 
 // Elabora i file caricati
 function process_uploads() {
+    // Verifica se è una richiesta POST
     if ($_SERVER["REQUEST_METHOD"] != "POST") {
         return [
             'success' => false,
@@ -56,7 +57,7 @@ function process_uploads() {
         ];
     }
     
-    // Verifica i file caricati
+    // Verifica se i file sono stati caricati
     if (!isset($_FILES['files'])) {
         return [
             'success' => false,
@@ -212,22 +213,4 @@ if (basename($_SERVER['SCRIPT_FILENAME']) == basename(__FILE__)) {
                 if (xhr.status === 200) {
                     let response = JSON.parse(xhr.responseText);
                     if (response.success) {
-                        alert(response.message);
-                        let videoList = document.getElementById('uploadList');
-                        let newItem = document.createElement('div');
-                        newItem.className = 'file-item';
-                        newItem.innerHTML = `<a href="${response.video_url}" target="_blank">Scarica Video Montato</a> | <a href="${response.thumbnail_url}" target="_blank">Miniatura</a>`;
-                        videoList.appendChild(newItem);
-                    } else {
-                        alert('Errore: ' + response.message);
-                    }
-                } else {
-                    alert('Errore durante il caricamento dei file');
-                }
-            };
-
-            xhr.send(formData);  // Invia il modulo via POST
-        });
-    </script>
-</body>
-</html>
+                        alert
