@@ -26,95 +26,36 @@ function trim_video($input_path, $output_path, $duration) {
 
 // Funzione per concatenare i video
 function concatenate_videos($video_files, $output_path) {
+    // Crea un file di lista per FFmpeg
     $list_file = "temp_list_" . uniqid() . ".txt";
     $list_content = "";
-
+    
     foreach ($video_files as $file) {
         $list_content .= "file '" . str_replace("'", "'\\''", $file) . "'\n";
     }
-
+    
     file_put_contents($list_file, $list_content);
-
+    
+    // Concatena i video
     $cmd = "ffmpeg -f concat -safe 0 -i " . escapeshellarg($list_file) . 
            " -c copy " . escapeshellarg($output_path) . " 2>&1";
     exec($cmd, $output, $return_code);
-
+    
+    // Pulisci
     unlink($list_file);
-
+    
     return $return_code === 0;
 }
 
-// Funzione per applicare un filtro al video
-function apply_filter($input_path, $output_path, $filter) {
-    $filter_cmd = "";
-
-    switch ($filter) {
-        case 'bn':
-            $filter_cmd = "-vf colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3";
-            break;
-        case 'lum':
-            $filter_cmd = "-vf eq=brightness=0.1:contrast=1.3";
-            break;
-        case 'cinematic':
-            $filter_cmd = "-vf colorlevels=rimin=0.058:gimin=0.058:bimin=0.058:rimax=0.977:gimax=0.977:bimax=0.977";
-            break;
-        case 'cool':
-            $filter_cmd = "-vf colortemperature=4000";
-            break;
-        case 'seppia':
-            $filter_cmd = "-vf colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131";
-            break;
-        case 'vintage':
-            $filter_cmd = "-vf colorlevels=rimin=0.125:gimin=0.125:bimin=0.125:rimax=0.75:gimax=0.75:bimax=0.75,vignette";
-            break;
-        default:
-            $filter_cmd = "";
-    }
-
-    $cmd = "ffmpeg -i " . escapeshellarg($input_path) . " " . 
-           $filter_cmd . " -c:v libx264 -c:a copy " . 
-           escapeshellarg($output_path) . " 2>&1";
-    exec($cmd, $output, $return_code);
-
-    return $return_code === 0;
-}
-
-// Funzione per adattare il video al formato 9:16
-function adapt_to_vertical($input_path, $output_path) {
-    $cmd = "ffmpeg -i " . escapeshellarg($input_path) . 
-           " -vf \"scale=720:-1,crop=720:1280:0:0\" " . 
-           "-c:v libx264 -c:a copy " . escapeshellarg($output_path) . " 2>&1";
-    exec($cmd, $output, $return_code);
-
-    return $return_code === 0;
-}
-
-// Funzione per verificare e creare le cartelle
-function create_directory($dir) {
-    if (!file_exists($dir)) {
-        if (!mkdir($dir, 0777, true)) {
-            echo "Errore: Impossibile creare la cartella $dir.";
-            exit;
-        }
-    }
-}
-
-// Funzione per elaborare i file caricati
+// Elabora i file caricati
 function process_uploads() {
-    if (!is_ffmpeg_available()) {
-        return [
-            'success' => false,
-            'message' => 'FFmpeg non è disponibile su questo server. Contatta l\'amministratore.'
-        ];
-    }
-
     if ($_SERVER["REQUEST_METHOD"] != "POST") {
         return [
             'success' => false,
             'message' => 'Metodo non valido'
         ];
     }
-
+    
     // Verifica i file caricati
     if (!isset($_FILES['files'])) {
         return [
@@ -122,84 +63,63 @@ function process_uploads() {
             'message' => 'Nessun file caricato'
         ];
     }
-
+    
     // Crea directory per i file temporanei
     $process_id = uniqid();
     $temp_dir = "uploads/" . $process_id;
     $output_dir = "results/" . $process_id;
-
-    // Verifica la creazione delle cartelle
-    create_directory("uploads");
-    create_directory("results");
-    create_directory($temp_dir);
-    create_directory($output_dir);
-
-    // Ottieni i parametri
-    $video_duration = isset($_POST['videoDuration']) ? intval($_POST['videoDuration']) : 5;
-    $filter = isset($_POST['filter']) ? $_POST['filter'] : 'none';
-
+    
+    if (!file_exists("uploads")) mkdir("uploads");
+    if (!file_exists("results")) mkdir("results");
+    if (!file_exists($temp_dir)) mkdir($temp_dir);
+    if (!file_exists($output_dir)) mkdir($output_dir);
+    
     $processed_files = [];
     $source_files = [];
-
+    
     // Elabora ogni file
     $total_files = count($_FILES['files']['name']);
-
+    
     for ($i = 0; $i < $total_files; $i++) {
         if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
             $tmp_name = $_FILES['files']['tmp_name'][$i];
             $name = $_FILES['files']['name'][$i];
             $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-
+            
             // Solo file video MP4
             if ($ext == 'mp4') {
                 $source_path = $temp_dir . '/' . $name;
                 move_uploaded_file($tmp_name, $source_path);
                 $source_files[] = $source_path;
-
+                
                 // Taglia il video
                 $trimmed_path = $temp_dir . '/trimmed_' . $name;
-                if (trim_video($source_path, $trimmed_path, $video_duration)) {
-                    // Applica filtro se specificato
-                    $filtered_path = $filter != 'none' ? 
-                        $temp_dir . '/filtered_' . $name : 
-                        $trimmed_path;
-
-                    if ($filter != 'none') {
-                        if (!apply_filter($trimmed_path, $filtered_path, $filter)) {
-                            $filtered_path = $trimmed_path; // Usa il file tagliato se il filtro fallisce
-                        }
-                    }
-
-                    // Adatta a 9:16
-                    $final_path = $temp_dir . '/final_' . $name;
-                    if (adapt_to_vertical($filtered_path, $final_path)) {
-                        $processed_files[] = $final_path;
-                    } else {
-                        $processed_files[] = $filtered_path; // Usa il file filtrato se l'adattamento fallisce
-                    }
+                if (trim_video($source_path, $trimmed_path, 5)) {
+                    // Aggiungi il video tagliato alla lista dei file processati
+                    $processed_files[] = $trimmed_path;
                 }
             }
         }
     }
-
+    
     if (empty($processed_files)) {
         return [
             'success' => false,
             'message' => 'Nessun file video valido elaborato'
         ];
     }
-
+    
     // Concatena i video
     $output_file = $output_dir . '/montaggio_finale.mp4';
     if (concatenate_videos($processed_files, $output_file)) {
         // Crea una miniatura
         $thumbnail = $output_dir . '/thumbnail.jpg';
         create_thumbnail($output_file, $thumbnail);
-
+        
         // Prepara l'URL per il download
         $download_url = 'results/' . $process_id . '/montaggio_finale.mp4';
         $thumbnail_url = 'results/' . $process_id . '/thumbnail.jpg';
-
+        
         return [
             'success' => true,
             'message' => 'Video generato con successo',
@@ -265,49 +185,28 @@ if (basename($_SERVER['SCRIPT_FILENAME']) == basename(__FILE__)) {
     <div class="container">
         <h1 class="text-center mb-4">Montaggio Video Automatico</h1>
         <div class="alert alert-info">
-            <strong>Nota:</strong> Questa versione semplificata supporta solo file MP4 e alcune funzionalità sono limitate.
+            <strong>Nota:</strong> Questa versione semplificata supporta solo file MP4.
         </div>
-
-        <form id="videoForm" enctype="multipart/form-data">
+        
+        <form id="videoForm" enctype="multipart/form-data" method="POST">
             <div class="form-group">
                 <label for="fileUpload">📂 Seleziona video</label>
-                <input type="file" id="fileUpload" name="files[]" multiple class="form-control">
+                <input type="file" id="fileUpload" name="files[]" multiple>
             </div>
-            <div class="form-group">
-                <label for="videoDuration">Durata video (secondi)</label>
-                <input type="number" id="videoDuration" name="videoDuration" class="form-control" value="5" min="1">
-            </div>
-            <div class="form-group">
-                <label for="filter">Filtro video</label>
-                <select id="filter" name="filter" class="form-control">
-                    <option value="none">Nessun filtro</option>
-                    <option value="bn">Bianco e nero</option>
-                    <option value="lum">Luminosità alta</option>
-                    <option value="cinematic">Cinematica</option>
-                    <option value="cool">Cool</option>
-                    <option value="seppia">Seppia</option>
-                    <option value="vintage">Vintage</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Carica video</button>
+            <button type="submit" class="btn btn-primary">Carica Video</button>
         </form>
-        <div id="uploadList"></div>
+
+        <div id="uploadList" class="mt-4">
+            <h4>Video caricati</h4>
+        </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
     <script>
         document.getElementById('videoForm').addEventListener('submit', function(e) {
             e.preventDefault();
             let formData = new FormData(this);
             let xhr = new XMLHttpRequest();
-            xhr.open('POST', '', true);
-
-            xhr.upload.onprogress = function(event) {
-                if (event.lengthComputable) {
-                    let percent = (event.loaded / event.total) * 100;
-                    console.log('Progress: ' + percent + '%');
-                }
-            };
+            xhr.open('POST', '', true);  // Questo invia la richiesta con il metodo POST
 
             xhr.onload = function() {
                 if (xhr.status === 200) {
@@ -327,7 +226,7 @@ if (basename($_SERVER['SCRIPT_FILENAME']) == basename(__FILE__)) {
                 }
             };
 
-            xhr.send(formData);
+            xhr.send(formData);  // Invia il modulo via POST
         });
     </script>
 </body>
