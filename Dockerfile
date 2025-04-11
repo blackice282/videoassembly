@@ -18,3 +18,9 @@ EXPOSE 10000
 
 # Comando di avvio
 CMD ["php", "-S", "0.0.0.0:10000"]
+
+# Copia il file php.ini personalizzato
+COPY php.ini /usr/local/etc/php/
+
+# Altri comandi necessari per l'ambiente
+RUN docker-php-ext-install mysqli pdo pdo_mysql
