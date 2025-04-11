@@ -1,80 +1,75 @@
 <?php
+// Mostra gli errori
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+// Definisci le cartelle per il caricamento e l'output
+$temp_dir = 'uploads/' . uniqid();
+$output_dir = 'results/' . uniqid();
+
+// Verifica se le cartelle sono scrivibili
+if (!is_writable($temp_dir)) {
+    echo "Errore: La cartella $temp_dir non è scrivibile.";
+    exit;
+}
+
+if (!is_writable($output_dir)) {
+    echo "Errore: La cartella $output_dir non è scrivibile.";
+    exit;
+}
+
+// Verifica se il form è stato inviato
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['files'])) {
-    // Verifica se il file è stato caricato senza errori
-    $total_files = count($_FILES['files']['name']);
-    for ($i = 0; $i < $total_files; $i++) {
-        // Stampa i dati dei file caricati per debug
-        echo '<pre>';
-        var_dump($_FILES); // Visualizza tutte le informazioni su $_FILES
-        echo '</pre>';
-
-        // Gestione degli errori di upload
-        switch ($_FILES['files']['error'][$i]) {
-            case UPLOAD_ERR_OK:
-                echo "File caricato correttamente: " . $_FILES['files']['name'][$i] . "<br>";
-                break;
-            case UPLOAD_ERR_INI_SIZE:
-                echo "Il file " . $_FILES['files']['name'][$i] . " eccede la dimensione massima consentita nel php.ini.<br>";
-                break;
-            case UPLOAD_ERR_FORM_SIZE:
-                echo "Il file " . $_FILES['files']['name'][$i] . " eccede la dimensione massima definita nel modulo.<br>";
-                break;
-            case UPLOAD_ERR_PARTIAL:
-                echo "Il file " . $_FILES['files']['name'][$i] . " è stato caricato solo parzialmente.<br>";
-                break;
-            case UPLOAD_ERR_NO_FILE:
-                echo "Nessun file caricato per " . $_FILES['files']['name'][$i] . ".<br>";
-                break;
-            case UPLOAD_ERR_NO_TMP_DIR:
-                echo "Mancante una cartella temporanea per il file " . $_FILES['files']['name'][$i] . ".<br>";
-                break;
-            case UPLOAD_ERR_CANT_WRITE:
-                echo "Impossibile scrivere su disco per il file " . $_FILES['files']['name'][$i] . ".<br>";
-                break;
-            case UPLOAD_ERR_EXTENSION:
-                echo "Il caricamento del file " . $_FILES['files']['name'][$i] . " è stato interrotto da un'estensione PHP.<br>";
-                break;
-            default:
-                echo "Errore sconosciuto nel caricamento di " . $_FILES['files']['name'][$i] . ".<br>";
+    // Crea la cartella temporanea se non esiste
+    if (!file_exists($temp_dir)) {
+        mkdir($temp_dir, 0777, true);
+    }
+    
+    // Crea la cartella per i risultati se non esiste
+    if (!file_exists($output_dir)) {
+        mkdir($output_dir, 0777, true);
+    }
+    
+    // Carica i file
+    foreach ($_FILES['files']['tmp_name'] as $index => $tmp_name) {
+        $file_path = $temp_dir . '/' . $_FILES['files']['name'][$index];
+        if (move_uploaded_file($tmp_name, $file_path)) {
+            echo "File caricato con successo: " . $_FILES['files']['name'][$index] . "<br>";
+        } else {
+            echo "Errore durante il caricamento del file: " . $_FILES['files']['name'][$index] . "<br>";
+            continue;  // Salta l'elaborazione di questo file
         }
 
-        // Solo se il file è stato caricato senza errori, continua con l'elaborazione
-        if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
-            $tmp_name = $_FILES['files']['tmp_name'][$i];
-            $name = $_FILES['files']['name'][$i];
-            $destination = 'uploads/' . $name;
-
-            // Crea la cartella se non esiste
-            if (!file_exists('uploads')) {
-                mkdir('uploads', 0777, true);
-            }
-
-            // Sposta il file caricato nella cartella "uploads"
-            if (move_uploaded_file($tmp_name, $destination)) {
-                echo "File caricato con successo: " . $name . "<br>";
-            } else {
-                echo "Errore nel caricamento del file: " . $name . "<br>";
-            }
+        // Verifica che il file esista
+        if (!file_exists($file_path)) {
+            echo "Errore: Il file video non esiste: " . $file_path;
+            continue;
         }
+
+        // Esegui il comando FFmpeg per elaborare il video (ad esempio, per ridimensionarlo)
+        $cmd = "ffmpeg -i " . escapeshellarg($file_path) . " -vf scale=720:-1 " . escapeshellarg($output_dir . '/output_video.mp4');
+        exec($cmd, $output, $return_code);
+
+        // Verifica se FFmpeg ha avuto un errore
+        if ($return_code !== 0) {
+            echo "Errore durante l'esecuzione di FFmpeg: " . implode("\n", $output);
+            continue;
+        }
+    }
+    
+    // Verifica che il video finale esista
+    $final_video_path = $output_dir . '/output_video.mp4';
+    if (file_exists($final_video_path)) {
+        echo "Video finale creato con successo: " . $final_video_path;
+    } else {
+        echo "Errore: Il video finale non è stato creato.";
     }
 }
 ?>
 
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Carica Video</title>
-</head>
-<body>
-    <h1>Carica il tuo video</h1>
-
-    <form method="POST" enctype="multipart/form-data">
-        <label for="fileUpload">Seleziona video:</label>
-        <input type="file" name="files[]" id="fileUpload" multiple>
-        <button type="submit">Carica</button>
-    </form>
-
-</body>
-</html>
+<!-- Form per caricare i file -->
+<form action="index.php" method="post" enctype="multipart/form-data">
+    Seleziona i video da caricare:
+    <input type="file" name="files[]" multiple>
+    <input type="submit" value="Carica video">
+</form>
