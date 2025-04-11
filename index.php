@@ -292,4 +292,43 @@ if (basename($_SERVER['SCRIPT_FILENAME']) == basename(__FILE__)) {
             <button type="submit" class="btn btn-primary">Carica video</button>
         </form>
         <div id="uploadList"></div>
-    </div
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('videoForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            let formData = new FormData(this);
+            let xhr = new XMLHttpRequest();
+            xhr.open('POST', '', true);
+
+            xhr.upload.onprogress = function(event) {
+                if (event.lengthComputable) {
+                    let percent = (event.loaded / event.total) * 100;
+                    console.log('Progress: ' + percent + '%');
+                }
+            };
+
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    let response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        alert(response.message);
+                        let videoList = document.getElementById('uploadList');
+                        let newItem = document.createElement('div');
+                        newItem.className = 'file-item';
+                        newItem.innerHTML = `<a href="${response.video_url}" target="_blank">Video montato</a> | <a href="${response.thumbnail_url}" target="_blank">Miniatura</a>`;
+                        videoList.appendChild(newItem);
+                    } else {
+                        alert('Errore: ' + response.message);
+                    }
+                } else {
+                    alert('Errore durante il caricamento dei file');
+                }
+            };
+
+            xhr.send(formData);
+        });
+    </script>
+</body>
+</html>
