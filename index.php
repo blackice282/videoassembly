@@ -72,7 +72,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['files'])) {
         file_put_contents($concatList, implode("\n", array_map(fn($f) => "file '$f'", $intermediateClips)));
 
         $finalVideo = 'uploads/final_video.mp4';
-        $cmd = "ffmpeg -f concat -safe 0 -i $concatList -c copy $finalVideo";
+        $cmd = "ffmpeg -f concat -safe 0 -i $concatList -c:v libx264 -preset fast -crf 23 -c:a aac $finalVideo";
         shell_exec($cmd);
 
         if (file_exists($finalVideo)) {
