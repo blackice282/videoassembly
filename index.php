@@ -22,10 +22,13 @@ function getErrorMessage($error_code, $filename) {
 }
 
 $upload_messages = [];
+$download_link = null;
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES['files'])) {
     $total_files = count($_FILES['files']['name']);
     $upload_dir = createSessionFolder();
+
+    $first_uploaded = null;
 
     for ($i = 0; $i < $total_files; $i++) {
         $error = $_FILES['files']['error'][$i];
@@ -41,9 +44,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES['files'])) {
 
         if (move_uploaded_file($tmp_name, $destination)) {
             $upload_messages[] = "✅ File caricato correttamente: $name";
+            if (!$first_uploaded) {
+                $first_uploaded = $destination;
+            }
         } else {
             $upload_messages[] = "❌ Errore nel salvataggio del file: $name";
         }
+    }
+
+    // Simulazione montaggio video: copia del primo file
+    if ($first_uploaded) {
+        $final_output = "$upload_dir/video_montato.mp4";
+        copy($first_uploaded, $final_output);
+        $download_link = $final_output;
     }
 }
 ?>
@@ -78,6 +91,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES['files'])) {
             <?php foreach ($upload_messages as $msg): ?>
                 <p><?= htmlspecialchars($msg) ?></p>
             <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($download_link): ?>
+        <div class="message">
+            <p>🎬 Video montato disponibile: <a href="<?= htmlspecialchars($download_link) ?>" download>Clicca per scaricare</a></p>
         </div>
     <?php endif; ?>
 
