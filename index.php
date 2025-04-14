@@ -1,85 +1,52 @@
 <?php
-function extractActiveClips($input, $output, $clipDuration = 2, $numClips = 2) {
-    $sceneDir = 'uploads/scenes';
-    if (!file_exists($sceneDir)) {
-        mkdir($sceneDir, 0777, true);
+function createUploadsDir() {
+    if (!file_exists('uploads')) {
+        mkdir('uploads', 0777, true);
     }
+}
 
-    $sceneFile = "$sceneDir/scene_" . uniqid() . ".txt";
+function convertToTs($inputFile, $outputTs) {
+    $cmd = "ffmpeg -i \"$inputFile\" -c copy -bsf:v h264_mp4toannexb -f mpegts \"$outputTs\"";
+    shell_exec($cmd);
+}
 
-    // Rileva le scene con ffmpeg
-    $cmd = "ffmpeg -i \"$input\" -filter_complex \"select='gt(scene,0.3)',showinfo\" -f null - 2>&1";
-    $outputCmd = shell_exec($cmd);
-
-    preg_match_all('/pts_time:([0-9.]+)/', $outputCmd, $matches);
-    $timestamps = $matches[1] ?? [];
-
-    $clips = [];
-    for ($i = 0; $i < min(count($timestamps), $numClips); $i++) {
-        $start = $timestamps[$i];
-        $clips[] = [
-            'start' => $start,
-            'duration' => $clipDuration
-        ];
-    }
-
-    // Estrai i clip e salva in un file temporaneo
-    $clipFiles = [];
-    foreach ($clips as $index => $clip) {
-        $clipPath = "$sceneDir/clip_" . uniqid() . "_$index.mp4";
-        $cmd = "ffmpeg -ss {$clip['start']} -i \"$input\" -t {$clip['duration']} -c copy \"$clipPath\"";
-        shell_exec($cmd);
-        $clipFiles[] = $clipPath;
-    }
-
-    // Salva il file per concatenazione
-    $listFile = "$sceneDir/list_" . uniqid() . ".txt";
-    file_put_contents($listFile, implode("\n", array_map(fn($f) => "file '$f'", $clipFiles)));
-
-    // Concatena i clip
-    $cmd = "ffmpeg -f concat -safe 0 -i $listFile -c copy \"$output\"";
+function concatenateTsFiles($tsFiles, $outputFile) {
+    $tsList = implode('|', $tsFiles);
+    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$outputFile\"";
     shell_exec($cmd);
 }
 
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['files'])) {
+    createUploadsDir();
+
+    $uploaded_ts_files = [];
+
     $total_files = count($_FILES['files']['name']);
-
-    if (!file_exists('uploads')) {
-        mkdir('uploads', 0777, true);
-    }
-
-    $intermediateClips = [];
-
     for ($i = 0; $i < $total_files; $i++) {
-        $tmp_name = $_FILES['files']['tmp_name'][$i];
-        $name = basename($_FILES['files']['name'][$i]);
-        $uploadPath = 'uploads/' . $name;
+        if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
+            $tmp_name = $_FILES['files']['tmp_name'][$i];
+            $name = basename($_FILES['files']['name'][$i]);
+            $destination = 'uploads/' . $name;
 
-        if (move_uploaded_file($tmp_name, $uploadPath)) {
-            echo "✅ Caricato: $name<br>";
+            if (move_uploaded_file($tmp_name, $destination)) {
+                echo "✅ File caricato: $name<br>";
 
-            // Estrai le scene attive da ciascun video
-            $partialClip = 'uploads/clip_' . uniqid() . '.mp4';
-            extractActiveClips($uploadPath, $partialClip);
-            $intermediateClips[] = $partialClip;
-        } else {
-            echo "❌ Errore nel caricamento di $name<br>";
+                // Converti in .ts per la concatenazione
+                $tsFile = 'uploads/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
+                convertToTs($destination, $tsFile);
+                $uploaded_ts_files[] = $tsFile;
+            } else {
+                echo "❌ Errore nel salvataggio del file: $name<br>";
+            }
         }
     }
 
-    if (count($intermediateClips) > 0) {
-        $concatList = 'uploads/final_list.txt';
-        file_put_contents($concatList, implode("\n", array_map(fn($f) => "file '$f'", $intermediateClips)));
-
-        $finalVideo = 'uploads/final_video.mp4';
-        $cmd = "ffmpeg -f concat -safe 0 -i $concatList -c:v libx264 -preset fast -crf 23 -c:a aac $finalVideo";
-        shell_exec($cmd);
-
-        if (file_exists($finalVideo)) {
-            echo "<br><strong>🎬 Video montato!</strong> <a href='download.php'>Scarica il video montato</a>";
-        } else {
-            echo "❌ Errore nella generazione del video finale.";
-        }
+    if (count($uploaded_ts_files) > 1) {
+        $outputFinal = 'uploads/final_video.mp4';
+        concatenateTsFiles($uploaded_ts_files, $outputFinal);
+        echo "<br>🎉 <strong>Montaggio completato!</strong> <a href='$outputFinal' download>Clicca qui per scaricare il video</a>";
+    } else {
+        echo "<br>⚠️ Carica almeno due video per generare un montaggio.";
     }
 }
 ?>
@@ -88,12 +55,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['files'])) {
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <title>Montaggio Video</title>
+    <title>Carica e Monta Video</title>
 </head>
 <body>
-    <h1>Carica i tuoi video</h1>
+    <h1>🎬 Carica i tuoi video per il montaggio</h1>
     <form method="POST" enctype="multipart/form-data">
-        <input type="file" name="files[]" multiple required>
+        <input type="file" name="files[]" multiple accept="video/mp4">
         <button type="submit">Carica e Monta</button>
     </form>
 </body>
