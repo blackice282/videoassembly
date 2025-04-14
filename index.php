@@ -1,60 +1,48 @@
 <?php
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['files'])) {
-    // Verifica se il file è stato caricato senza errori
-    $total_files = count($_FILES['files']['name']);
-    for ($i = 0; $i < $total_files; $i++) {
-        // Stampa i dati dei file caricati per debug
-        echo '<pre>';
-        var_dump($_FILES); // Visualizza tutte le informazioni su $_FILES
-        echo '</pre>';
+function createSessionFolder($base = 'uploads') {
+    $session_id = uniqid();
+    $folder = "$base/$session_id";
+    if (!file_exists($folder)) {
+        mkdir($folder, 0777, true);
+    }
+    return $folder;
+}
 
-        // Gestione degli errori di upload
-        switch ($_FILES['files']['error'][$i]) {
-            case UPLOAD_ERR_OK:
-                echo "File caricato correttamente: " . $_FILES['files']['name'][$i] . "<br>";
-                break;
-            case UPLOAD_ERR_INI_SIZE:
-                echo "Il file " . $_FILES['files']['name'][$i] . " eccede la dimensione massima consentita nel php.ini.<br>";
-                break;
-            case UPLOAD_ERR_FORM_SIZE:
-                echo "Il file " . $_FILES['files']['name'][$i] . " eccede la dimensione massima definita nel modulo.<br>";
-                break;
-            case UPLOAD_ERR_PARTIAL:
-                echo "Il file " . $_FILES['files']['name'][$i] . " è stato caricato solo parzialmente.<br>";
-                break;
-            case UPLOAD_ERR_NO_FILE:
-                echo "Nessun file caricato per " . $_FILES['files']['name'][$i] . ".<br>";
-                break;
-            case UPLOAD_ERR_NO_TMP_DIR:
-                echo "Mancante una cartella temporanea per il file " . $_FILES['files']['name'][$i] . ".<br>";
-                break;
-            case UPLOAD_ERR_CANT_WRITE:
-                echo "Impossibile scrivere su disco per il file " . $_FILES['files']['name'][$i] . ".<br>";
-                break;
-            case UPLOAD_ERR_EXTENSION:
-                echo "Il caricamento del file " . $_FILES['files']['name'][$i] . " è stato interrotto da un'estensione PHP.<br>";
-                break;
-            default:
-                echo "Errore sconosciuto nel caricamento di " . $_FILES['files']['name'][$i] . ".<br>";
+function getErrorMessage($error_code, $filename) {
+    $errors = [
+        UPLOAD_ERR_INI_SIZE   => "Il file $filename eccede la dimensione massima consentita.",
+        UPLOAD_ERR_FORM_SIZE  => "Il file $filename eccede la dimensione massima definita nel modulo.",
+        UPLOAD_ERR_PARTIAL    => "Il file $filename è stato caricato solo parzialmente.",
+        UPLOAD_ERR_NO_FILE    => "Nessun file caricato per $filename.",
+        UPLOAD_ERR_NO_TMP_DIR => "Manca una cartella temporanea per $filename.",
+        UPLOAD_ERR_CANT_WRITE => "Impossibile scrivere su disco per $filename.",
+        UPLOAD_ERR_EXTENSION  => "Il caricamento del file $filename è stato interrotto da un'estensione PHP.",
+    ];
+    return $errors[$error_code] ?? "Errore sconosciuto per il file $filename.";
+}
+
+$upload_messages = [];
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_FILES['files'])) {
+    $total_files = count($_FILES['files']['name']);
+    $upload_dir = createSessionFolder();
+
+    for ($i = 0; $i < $total_files; $i++) {
+        $error = $_FILES['files']['error'][$i];
+        $name = basename($_FILES['files']['name'][$i]);
+
+        if ($error !== UPLOAD_ERR_OK) {
+            $upload_messages[] = getErrorMessage($error, $name);
+            continue;
         }
 
-        // Solo se il file è stato caricato senza errori, continua con l'elaborazione
-        if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
-            $tmp_name = $_FILES['files']['tmp_name'][$i];
-            $name = $_FILES['files']['name'][$i];
-            $destination = 'uploads/' . $name;
+        $tmp_name = $_FILES['files']['tmp_name'][$i];
+        $destination = "$upload_dir/$name";
 
-            // Crea la cartella se non esiste
-            if (!file_exists('uploads')) {
-                mkdir('uploads', 0777, true);
-            }
-
-            // Sposta il file caricato nella cartella "uploads"
-            if (move_uploaded_file($tmp_name, $destination)) {
-                echo "File caricato con successo: " . $name . "<br>";
-            } else {
-                echo "Errore nel caricamento del file: " . $name . "<br>";
-            }
+        if (move_uploaded_file($tmp_name, $destination)) {
+            $upload_messages[] = "✅ File caricato correttamente: $name";
+        } else {
+            $upload_messages[] = "❌ Errore nel salvataggio del file: $name";
         }
     }
 }
@@ -64,17 +52,39 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['files'])) {
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carica Video</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 2rem auto;
+        }
+        input[type="file"] {
+            margin: 1rem 0;
+        }
+        .message {
+            background: #f2f2f2;
+            border-left: 5px solid #333;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+    </style>
 </head>
 <body>
-    <h1>Carica il tuo video</h1>
+    <h1>Carica i tuoi video</h1>
+
+    <?php if (!empty($upload_messages)): ?>
+        <div class="message">
+            <?php foreach ($upload_messages as $msg): ?>
+                <p><?= htmlspecialchars($msg) ?></p>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 
     <form method="POST" enctype="multipart/form-data">
-        <label for="fileUpload">Seleziona video:</label>
-        <input type="file" name="files[]" id="fileUpload" multiple>
+        <label for="fileUpload">Seleziona uno o più video:</label><br>
+        <input type="file" name="files[]" id="fileUpload" multiple accept="video/mp4"><br>
         <button type="submit">Carica</button>
     </form>
-
 </body>
 </html>
