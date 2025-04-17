@@ -80,20 +80,44 @@ frame_rate = float(sys.argv[6])
 
 print(f"Analisi con parametri: conf={confidence_threshold}, max_gap={max_gap}, min_dur={min_duration}")
 
-# Inizializza il rilevatore di persone HOG
+# Inizializza sia il rilevatore HOG che il rilevatore basato su rete neurale (Yolo/SSD) se disponibile
 hog = cv2.HOGDescriptor()
 hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
 
-# Per video più grandi/complessi, si potrebbe usare un rilevatore basato su deep learning
-# Nota: questo richiederebbe l'installazione di modelli aggiuntivi
-# Esempio di implementazione alternativa commentata:
-"""
-# Inizializza il rilevatore SSD con MobileNet
-net = cv2.dnn.readNetFromCaffe(
-    'models/MobileNetSSD_deploy.prototxt',
-    'models/MobileNetSSD_deploy.caffemodel'
-)
-"""
+# Flag per indicare se è disponibile un rilevatore basato su deep learning
+has_deep_detector = False
+
+# Prova a caricare un rilevatore YOLO se disponibile
+yolo_paths = {
+    'config': 'models/yolov4.cfg',
+    'weights': 'models/yolov4.weights',
+    'classes': 'models/coco.names'
+}
+
+try:
+    # Verifica se i file del modello esistono
+    if all(os.path.exists(p) for p in yolo_paths.values()):
+        # Carica il modello YOLO
+        net = cv2.dnn.readNetFromDarknet(yolo_paths['config'], yolo_paths['weights'])
+        
+        # Carica le classi
+        with open(yolo_paths['classes'], 'r') as f:
+            classes = [line.strip() for line in f.readlines()]
+        
+        # Trova l'indice della classe "person"
+        person_class_id = classes.index('person') if 'person' in classes else 0
+        
+        # Imposta alcuni parametri
+        layer_names = net.getLayerNames()
+        output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+        
+        has_deep_detector = True
+        print("Rilevatore YOLO caricato con successo!")
+    else:
+        print("File del modello YOLO non trovati. Verrà utilizzato solo HOG.")
+except Exception as e:
+    print(f"Errore nel caricare YOLO: {e}")
+    print("Verrà utilizzato solo HOG per il rilevamento delle persone.")
 
 # Analizza tutti i fotogrammi
 frames = sorted([f for f in os.listdir(frames_dir) if f.endswith('.jpg')])
@@ -101,6 +125,78 @@ results = []
 
 print(f"Trovati {len(frames)} fotogrammi da analizzare")
 
+# Funzione per rilevare persone con HOG
+def detect_with_hog(frame):
+    # Resize per migliorare prestazioni/precisione (opzionale)
+    height, width = frame.shape[:2]
+    if width > 800:
+        scale = 800 / width
+        frame = cv2.resize(frame, (0, 0), fx=scale, fy=scale)
+    
+    # Rileva persone con HOG
+    boxes, weights = hog.detectMultiScale(
+        frame, 
+        winStride=(8, 8), 
+        padding=(4, 4), 
+        scale=1.05
+    )
+    
+    # Riscala le box alle dimensioni originali se necessario
+    if width > 800:
+        boxes = [[int(x/scale), int(y/scale), int(w/scale), int(h/scale)] for (x, y, w, h) in boxes]
+    
+    # Filtra per confidenza
+    people_boxes = [box for box, weight in zip(boxes, weights) if weight > confidence_threshold]
+    return people_boxes
+
+# Funzione per rilevare persone con YOLO
+def detect_with_yolo(frame):
+    height, width = frame.shape[:2]
+    
+    # Prepara l'immagine per il modello
+    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+    net.setInput(blob)
+    outs = net.forward(output_layers)
+    
+    # Informazioni rilevamento
+    class_ids = []
+    confidences = []
+    boxes = []
+    
+    # Per ogni uscita
+    for out in outs:
+        for detection in out:
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
+            
+            # Filtra solo persone (classe 0) con confidenza sufficiente
+            if class_id == person_class_id and confidence > confidence_threshold:
+                # Coordinate del bounding box
+                center_x = int(detection[0] * width)
+                center_y = int(detection[1] * height)
+                w = int(detection[2] * width)
+                h = int(detection[3] * height)
+                
+                # Coordinate del rettangolo
+                x = int(center_x - w / 2)
+                y = int(center_y - h / 2)
+                
+                boxes.append([x, y, w, h])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
+    
+    # Applica non-max suppression per eliminare box duplicate
+    indexes = cv2.dnn.NMSBoxes(boxes, confidences, confidence_threshold, 0.4)
+    result_boxes = []
+    
+    for i in range(len(boxes)):
+        if i in indexes:
+            result_boxes.append(boxes[i])
+            
+    return result_boxes
+
+# Per ogni fotogramma, prova entrambi i metodi di rilevamento
 for i, frame_name in enumerate(frames):
     # Tempo stimato del fotogramma (in secondi)
     time_sec = i / frame_rate
@@ -112,16 +208,12 @@ for i, frame_name in enumerate(frames):
         print(f"Impossibile leggere il fotogramma: {frame_path}")
         continue
     
-    # Rileva persone con HOG
-    boxes, weights = hog.detectMultiScale(
-        frame, 
-        winStride=(8, 8), 
-        padding=(4, 4), 
-        scale=1.05
-    )
+    # Prima prova con HOG (più veloce ma meno preciso)
+    people_boxes = detect_with_hog(frame)
     
-    # Filtra i risultati per confidenza
-    people_boxes = [box for box, weight in zip(boxes, weights) if weight > confidence_threshold]
+    # Se HOG non trova nulla e abbiamo il rilevatore deep learning, proviamo con quello
+    if len(people_boxes) == 0 and has_deep_detector:
+        people_boxes = detect_with_yolo(frame)
     
     # Se trovate persone, salva il timestamp
     if len(people_boxes) > 0:
@@ -134,21 +226,50 @@ for i, frame_name in enumerate(frames):
 # Converti i timestamp in segmenti (unisci timestamp vicini)
 segments = []
 if results:
-    current_segment = {"start": results[0]["time"], "end": results[0]["time"] + (1/frame_rate)}
+    current_segment = {"start": results[0]["time"], "end": results[0]["time"] + (1/frame_rate), "people_count": results[0]["people_count"]}
     
     for r in results[1:]:
         # Se il timestamp è continuo con il segmento corrente, estendi il segmento
         if r["time"] <= current_segment["end"] + max_gap:
             current_segment["end"] = r["time"] + (1/frame_rate)
+            # Aggiorna il conteggio persone con il valore massimo
+            current_segment["people_count"] = max(current_segment["people_count"], r["people_count"])
         else:
             # Altrimenti, chiudi il segmento corrente e iniziane uno nuovo
             if (current_segment["end"] - current_segment["start"]) >= min_duration:
                 segments.append(current_segment)
-            current_segment = {"start": r["time"], "end": r["time"] + (1/frame_rate)}
+            current_segment = {"start": r["time"], "end": r["time"] + (1/frame_rate), "people_count": r["people_count"]}
     
     # Aggiungi l'ultimo segmento se abbastanza lungo
     if (current_segment["end"] - current_segment["start"]) >= min_duration:
         segments.append(current_segment)
+
+# Aggiungi margini ai segmenti (prima e dopo) per catturare meglio il movimento
+expanded_segments = []
+for segment in segments:
+    # Aggiungi un secondo prima e dopo ogni segmento, ma non andare oltre i limiti del video
+    expanded_start = max(0, segment["start"] - 1)
+    # Qui assumiamo che la durata del video sia disponibile; se non lo è, useremo un valore alto
+    expanded_end = segment["end"] + 1  # Aggiungi 1 secondo alla fine
+    
+    # Verifica se il segmento si sovrappone a uno precedente
+    if expanded_segments and expanded_start <= expanded_segments[-1]["end"]:
+        # Unisci con il segmento precedente
+        expanded_segments[-1]["end"] = max(expanded_segments[-1]["end"], expanded_end)
+        expanded_segments[-1]["people_count"] = max(expanded_segments[-1]["people_count"], segment["people_count"])
+    else:
+        # Aggiungi come nuovo segmento
+        expanded_segments.append({
+            "start": expanded_start,
+            "end": expanded_end,
+            "people_count": segment["people_count"]
+        })
+
+# Sostituisci i segmenti originali con quelli espansi
+segments = expanded_segments
+
+# Ordina i segmenti per tempo di inizio
+segments.sort(key=lambda x: x["start"])
 
 print(f"Generati {len(segments)} segmenti con persone")
 
