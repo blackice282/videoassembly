@@ -38,6 +38,9 @@ function cleanupTempFiles($files, $keepOriginals = false) {
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     createUploadsDir();
     
+    // Imposta timeout più lungo per operazioni pesanti
+    set_time_limit(300); // 5 minuti
+    
     // Modalità di elaborazione: 'simple', 'detect_people'
     $mode = isset($_POST['mode']) ? $_POST['mode'] : 'simple';
     
@@ -49,17 +52,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $durationMethod = isset($_POST['duration_method']) ? $_POST['duration_method'] : 'trim';
     setConfig('duration_editor.method', $durationMethod);
     
-    // Mostra diagnostica dell'ambiente se in modalità rilevamento persone
+    // Verifica FFmpeg (unica dipendenza richiesta)
     if ($mode === 'detect_people') {
-        // Verifica le dipendenze
         $deps = checkDependencies();
-        echo "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
-        echo "<strong>🔧 Informazioni di sistema:</strong><br>";
-        echo "Python: " . ($deps['python'] ? "✅ " . $deps['python_version'] : "❌ Non disponibile") . "<br>";
-        echo "OpenCV: " . ($deps['opencv'] ? "✅ " . $deps['opencv_version'] : "❌ Non disponibile") . "<br>";
-        echo "FFmpeg: " . ($deps['ffmpeg'] ? "✅ Disponibile" : "❌ Non disponibile") . "<br>";
-        echo "Metodo di rilevamento: " . ($deps['python'] && $deps['opencv'] ? "OpenCV (avanzato)" : "FFmpeg (base)") . "<br>";
-        echo "</div>";
+        if (!$deps['ffmpeg']) {
+            echo "<div style='background: #f8d7da; padding: 10px; border-radius: 5px; margin: 10px 0; color: #721c24;'>";
+            echo "<strong>⚠️ Errore: FFmpeg non disponibile</strong><br>";
+            echo "Il rilevamento persone richiede FFmpeg. Il sistema non può funzionare senza questa dipendenza.";
+            echo "</div>";
+            exit;
+        }
     }
     
     if (isset($_FILES['files'])) {
@@ -68,6 +70,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $segments_to_process = [];
 
         $total_files = count($_FILES['files']['name']);
+        echo "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+        echo "<strong>🔄 Elaborazione video...</strong><br>";
+        
         for ($i = 0; $i < $total_files; $i++) {
             if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
                 $tmp_name = $_FILES['files']['tmp_name'][$i];
@@ -80,37 +85,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     
                     if ($mode === 'detect_people') {
                         // Rileva persone in movimento e ottieni segmenti
-                        echo "🔍 Rilevamento persone in movimento nel video: $name<br>";
+                        echo "🔍 Analisi del video: $name<br>";
+                        $start_time = microtime(true);
                         $detectionResult = detectMovingPeople($destination);
+                        $detection_time = round(microtime(true) - $start_time, 1);
                         
                         if ($detectionResult['success']) {
                             $num_segments = count($detectionResult['segments']);
-                            $fallbackUsed = isset($detectionResult['fallback_used']) && $detectionResult['fallback_used'];
-                            
-                            if ($fallbackUsed) {
-                                echo "👤 Utilizzato metodo alternativo: rilevate " . $num_segments . " scene nel video<br>";
-                            } else {
-                                echo "👥 Rilevate " . $num_segments . " sequenze con persone in movimento<br>";
-                            }
-                            
-                            // Aggiungi dettagli se ci sono segmenti
-                            if ($num_segments > 0) {
-                                echo "<details>";
-                                echo "<summary>Dettagli segmenti rilevati</summary>";
-                                echo "<ul style='max-height: 200px; overflow-y: auto;'>";
-                                
-                                foreach ($detectionResult['segments_info'] as $index => $segment_info) {
-                                    $start_time = gmdate("H:i:s", $segment_info['start']);
-                                    $end_time = gmdate("H:i:s", $segment_info['end']);
-                                    $duration = round($segment_info['end'] - $segment_info['start'], 1);
-                                    $people = isset($segment_info['people_count']) ? $segment_info['people_count'] : '?';
-                                    
-                                    echo "<li>Segmento " . ($index+1) . ": $start_time - $end_time ($duration sec) - $people persone</li>";
-                                }
-                                
-                                echo "</ul>";
-                                echo "</details><br>";
-                            }
+                            echo "👥 Rilevate " . $num_segments . " scene interessanti in $detection_time secondi<br>";
                             
                             // Aggiungi tutti i segmenti all'array da processare
                             foreach ($detectionResult['segments'] as $segment) {
@@ -130,92 +112,43 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             }
         }
+        echo "</div>";
         
         // Procedi con la concatenazione appropriata in base alla modalità
         if ($mode === 'detect_people' && count($segments_to_process) > 0) {
+            echo "<br>⏳ <strong>Finalizzazione del montaggio...</strong><br>";
+            
             // Converti i segmenti rilevati in formato .ts
             $segment_ts_files = [];
             
-            echo "<br>⏳ <strong>Elaborazione dei segmenti con persone...</strong><br>";
-            echo "<div style='max-height: 150px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+            // Ottimizzazione: processa solo i primi 20 segmenti massimo
+            $segments_to_process = array_slice($segments_to_process, 0, 20);
             
             foreach ($segments_to_process as $idx => $segment) {
-                $segmentName = basename($segment);
-                echo "✂️ Elaborazione segmento " . ($idx + 1) . "/" . count($segments_to_process) . ": $segmentName<br>";
-                
-                // Genera un nome di file più descrittivo per il segmento
                 $tsFile = pathinfo($segment, PATHINFO_DIRNAME) . '/' . pathinfo($segment, PATHINFO_FILENAME) . '.ts';
                 convertToTs($segment, $tsFile);
-                
                 if (file_exists($tsFile)) {
                     $segment_ts_files[] = $tsFile;
-                    echo "✅ Conversione completata<br>";
-                } else {
-                    echo "❌ Errore nella conversione del segmento<br>";
                 }
             }
             
-            echo "</div>";
-            
             if (count($segment_ts_files) > 0) {
-                // Ordina i segmenti per nome file (che riflette l'ordine temporale)
+                // Ordina i segmenti per nome file
                 sort($segment_ts_files);
                 
                 // Verifica se è richiesto l'adattamento della durata
                 $segmentsToUse = $segments_to_process;
                 
                 if ($targetDuration > 0) {
-                    echo "⏱️ Adattamento dei segmenti alla durata desiderata di " . gmdate("H:i:s", $targetDuration) . "...<br>";
-                    
-                    // Calcola la durata totale attuale
-                    $currentDuration = calculateTotalDuration($segmentsToUse);
-                    echo "ℹ️ Durata attuale dei segmenti: " . gmdate("H:i:s", $currentDuration) . "<br>";
-                    
-                    // Estrai le informazioni sul numero di persone nei segmenti
-                    $segmentsDetailedInfo = [];
-                    if (isset($detectionResult['segments_info']) && !empty($detectionResult['segments_info'])) {
-                        foreach ($detectionResult['segments_info'] as $info) {
-                            if (isset($info['people_count'])) {
-                                $segmentsDetailedInfo[] = $info;
-                            } else {
-                                // Se non è specificato, aggiungiamo un valore predefinito
-                                $segmentsDetailedInfo[] = ['people_count' => 1];
-                            }
-                        }
-                    }
-                    
-                    // Se stiamo usando un metodo basato sulle interazioni, mostra informazioni sulle persone rilevate
-                    if ($durationMethod === 'select_interactions') {
-                        echo "<details>";
-                        echo "<summary>📊 Informazioni sul rilevamento delle interazioni</summary>";
-                        echo "<div style='max-height: 200px; overflow-y: auto; padding: 10px; background: #f5f5f5; border-radius: 5px;'>";
-                        echo "<p>Il sistema selezionerà prioritariamente le scene con più persone, dove è più probabile che ci siano interazioni:</p>";
-                        echo "<ul>";
-                        
-                        if (!empty($segmentsDetailedInfo)) {
-                            foreach ($segmentsDetailedInfo as $idx => $info) {
-                                $peopleCount = isset($info['people_count']) ? $info['people_count'] : '?';
-                                echo "<li>Segmento " . ($idx + 1) . ": " . $peopleCount . " persone";
-                                if ($peopleCount >= 3) {
-                                    echo " <strong style='color: green;'>(Alta priorità)</strong>";
-                                } elseif ($peopleCount == 2) {
-                                    echo " <strong style='color: orange;'>(Media priorità)</strong>";
-                                } else {
-                                    echo " <strong style='color: gray;'>(Bassa priorità)</strong>";
-                                }
-                                echo "</li>";
-                            }
-                        } else {
-                            echo "<li>Nessuna informazione dettagliata disponibile sulle interazioni</li>";
-                        }
-                        
-                        echo "</ul>";
-                        echo "</div>";
-                        echo "</details><br>";
-                    }
+                    echo "⏱️ Adattamento alla durata di " . gmdate("H:i:s", $targetDuration) . "...<br>";
                     
                     // Adatta i segmenti alla durata desiderata
                     $tempDir = getConfig('paths.temp', 'temp') . '/duration_' . uniqid();
+                    
+                    // Ottimizzazione: usa direttamente le informazioni sui segmenti dal rilevatore
+                    $segmentsDetailedInfo = isset($detectionResult['segments_info']) ? 
+                                          $detectionResult['segments_info'] : [];
+                    
                     $adaptedSegments = adaptSegmentsToDuration($segmentsToUse, $targetDuration, $tempDir, $segmentsDetailedInfo);
                     
                     if (!empty($adaptedSegments)) {
@@ -233,41 +166,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     }
                 }
                 
-                // Applica transizioni se abilitato
-                if (getConfig('transitions.enabled', true) && count($segmentsToUse) > 1) {
-                    echo "🔄 Applicazione transizioni tra i segmenti...<br>";
-                    $transitionType = getConfig('transitions.type', 'fade');
-                    $tempTransDir = getConfig('paths.temp', 'temp') . '/transitions_' . uniqid();
-                    $segmentsWithTransitions = applyTransitions($segmentsToUse, $tempTransDir, $transitionType);
-                    
-                    if (!empty($segmentsWithTransitions)) {
-                        $segmentsToUse = $segmentsWithTransitions;
-                        
-                        // Converti i segmenti con transizioni in formato .ts
-                        $segment_ts_files = [];
-                        foreach ($segmentsWithTransitions as $segment) {
-                            $tsFile = pathinfo($segment, PATHINFO_DIRNAME) . '/' . pathinfo($segment, PATHINFO_FILENAME) . '.ts';
-                            convertToTs($segment, $tsFile);
-                            if (file_exists($tsFile)) {
-                                $segment_ts_files[] = $tsFile;
-                            }
-                        }
-                    }
-                }
-                
                 // Concatena i segmenti rilevati
                 $timestamp = date('Ymd_His');
-                $outputFinal = getConfig('paths.uploads', 'uploads') . '/video_con_persone_' . $timestamp . '.mp4';
+                $outputFinal = getConfig('paths.uploads', 'uploads') . '/video_montato_' . $timestamp . '.mp4';
                 
                 echo "🔄 Creazione del video finale con " . count($segment_ts_files) . " segmenti...<br>";
+                $start_time = microtime(true);
                 concatenateTsFiles($segment_ts_files, $outputFinal);
+                $concatenation_time = round(microtime(true) - $start_time, 1);
                 
-                // Genera una miniatura per il video finale
+                // Genera una miniatura per il video finale (ottimizzato)
                 $thumbnailPath = getConfig('paths.uploads', 'uploads') . '/thumbnail_' . $timestamp . '.jpg';
-                $thumbnailCmd = "ffmpeg -i " . escapeshellarg($outputFinal) . " -ss 00:00:03 -vframes 1 " . escapeshellarg($thumbnailPath);
+                $thumbnailCmd = "ffmpeg -ss 00:00:03 -i " . escapeshellarg($outputFinal) . " -vframes 1 -q:v 2 " . escapeshellarg($thumbnailPath);
                 shell_exec($thumbnailCmd);
                 
-                echo "<br>🎉 <strong>Montaggio completato!</strong> Video contenente tutte le parti con persone in movimento.<br><br>";
+                echo "<br>🎉 <strong>Montaggio completato in $concatenation_time secondi!</strong><br><br>";
                 
                 echo "<div style='display: flex; align-items: center; gap: 20px;'>";
                 if (file_exists($thumbnailPath)) {
@@ -278,28 +191,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         <path d='M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z'/>
                         <path d='M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z'/>
                       </svg>
-                      Scarica il video con persone in movimento</a>";
+                      Scarica il video</a>";
                 echo "</div>";
                 
-                // Informazioni sul video
-                $cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration,bit_rate -of json " . escapeshellarg($outputFinal);
-                $videoInfoJson = shell_exec($cmd);
-                if ($videoInfoJson) {
-                    $videoInfo = json_decode($videoInfoJson, true);
-                    if (isset($videoInfo['streams'][0])) {
-                        $info = $videoInfo['streams'][0];
+                // Informazioni base sul video (ottimizzato)
+                $cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 " . escapeshellarg($outputFinal);
+                $videoInfo = shell_exec($cmd);
+                
+                if ($videoInfo) {
+                    $infoLines = explode("\n", $videoInfo);
+                    if (count($infoLines) >= 3) {
+                        $width = $infoLines[0];
+                        $height = $infoLines[1];
+                        $duration = round(floatval($infoLines[2]), 1);
+                        
                         echo "<div style='margin-top: 15px; font-size: 14px; color: #666;'>";
                         echo "ℹ️ <strong>Informazioni video:</strong> ";
-                        if (isset($info['width']) && isset($info['height'])) {
-                            echo "{$info['width']}x{$info['height']} | ";
-                        }
-                        if (isset($info['duration'])) {
-                            $duration = round($info['duration'], 1);
-                            echo "Durata: " . gmdate("H:i:s", $duration) . " | ";
-                        }
-                        if (isset($info['bit_rate'])) {
-                            echo "Bitrate: " . round($info['bit_rate']/1000000, 2) . " Mbps";
-                        }
+                        echo "{$width}x{$height} | ";
+                        echo "Durata: " . gmdate("H:i:s", $duration);
                         echo "</div>";
                     }
                 }
@@ -307,13 +216,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 echo "<br>⚠️ <strong>Nessun segmento valido</strong> da unire nel video finale.";
             }
             
-            // Pulizia dei file temporanei se l'opzione è attivata
+            // Pulizia dei file temporanei
             if (getConfig('system.cleanup_temp', true)) {
                 cleanupTempFiles(array_merge($segment_ts_files, $segments_to_process), getConfig('system.keep_original', true));
             }
         } else if (count($uploaded_ts_files) > 1) {
             // Modalità semplice: concatena tutti i video
-            $outputFinal = getConfig('paths.uploads', 'uploads') . '/final_video.mp4';
+            $outputFinal = getConfig('paths.uploads', 'uploads') . '/final_video_' . date('Ymd_His') . '.mp4';
             concatenateTsFiles($uploaded_ts_files, $outputFinal);
             echo "<br>🎉 <strong>Montaggio completato!</strong> <a href='$outputFinal' download>Clicca qui per scaricare il video</a>";
             
@@ -521,12 +430,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <h3>📋 Istruzioni</h3>
         <ol>
             <li><strong>Carica i tuoi video</strong> - Seleziona uno o più file video dal tuo dispositivo</li>
-            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento automatico delle persone</li>
+            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento automatico di scene interessanti</li>
             <li><strong>Imposta la durata</strong> - Scegli quanto dovrà durare il video finale (opzionale)</li>
             <li><strong>Avvia il montaggio</strong> - Clicca su "Carica e Monta" e attendi il completamento</li>
             <li><strong>Scarica il risultato</strong> - Una volta completato, scarica il video finale</li>
         </ol>
-        <p><em>Nota: Il rilevamento delle persone funziona meglio con video ben illuminati e con soggetti chiaramente visibili.</em></p>
+        <p><em>Nota: L'elaborazione è ottimizzata per la velocità. Per risultati ancora migliori con video più lunghi, considera di caricare video più brevi o di limitare la durata finale.</em></p>
     </div>
 </body>
 </html>
