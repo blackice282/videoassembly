@@ -179,4 +179,21 @@ function concatenateWithTransitions($segmentFiles, $outputFile) {
         default:
             // Metodo semplice di concatenazione come fallback
             $cmd = "ffmpeg -f concat -safe 0 -i " . escapeshellarg($concatFile) . " -c copy " . escapeshellarg($outputFile);
-            exec($cmd, $output, $return
+            exec($cmd, $output, $returnCode);
+            return $returnCode === 0 && file_exists($outputFile);
+    }
+    
+    // Esegui il comando con il filtro complex
+    $cmd = "ffmpeg -f concat -safe 0 -i " . escapeshellarg($concatFile) . " $filterCommand " . escapeshellarg($outputFile);
+    exec($cmd, $output, $returnCode);
+    
+    // Pulizia dei file temporanei
+    if (getConfig('system.cleanup_temp', true)) {
+        if (file_exists($concatFile)) unlink($concatFile);
+        // Opzionalmente, rimuovi la directory temporanea
+        if (file_exists($tempDir)) rmdir($tempDir);
+    }
+    
+    return $returnCode === 0 && file_exists($outputFile);
+}
+?>
