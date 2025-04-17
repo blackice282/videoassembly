@@ -49,6 +49,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $durationMethod = isset($_POST['duration_method']) ? $_POST['duration_method'] : 'trim';
     setConfig('duration_editor.method', $durationMethod);
     
+    // Mostra diagnostica dell'ambiente se in modalità rilevamento persone
+    if ($mode === 'detect_people') {
+        // Verifica le dipendenze
+        $deps = checkDependencies();
+        echo "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+        echo "<strong>🔧 Informazioni di sistema:</strong><br>";
+        echo "Python: " . ($deps['python'] ? "✅ " . $deps['python_version'] : "❌ Non disponibile") . "<br>";
+        echo "OpenCV: " . ($deps['opencv'] ? "✅ " . $deps['opencv_version'] : "❌ Non disponibile") . "<br>";
+        echo "FFmpeg: " . ($deps['ffmpeg'] ? "✅ Disponibile" : "❌ Non disponibile") . "<br>";
+        echo "Metodo di rilevamento: " . ($deps['python'] && $deps['opencv'] ? "OpenCV (avanzato)" : "FFmpeg (base)") . "<br>";
+        echo "</div>";
+    }
+    
     if (isset($_FILES['files'])) {
         $uploaded_files = [];
         $uploaded_ts_files = [];
@@ -72,7 +85,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         
                         if ($detectionResult['success']) {
                             $num_segments = count($detectionResult['segments']);
-                            echo "👥 Rilevate " . $num_segments . " sequenze con persone in movimento<br>";
+                            $fallbackUsed = isset($detectionResult['fallback_used']) && $detectionResult['fallback_used'];
+                            
+                            if ($fallbackUsed) {
+                                echo "👤 Utilizzato metodo alternativo: rilevate " . $num_segments . " scene nel video<br>";
+                            } else {
+                                echo "👥 Rilevate " . $num_segments . " sequenze con persone in movimento<br>";
+                            }
                             
                             // Aggiungi dettagli se ci sono segmenti
                             if ($num_segments > 0) {
