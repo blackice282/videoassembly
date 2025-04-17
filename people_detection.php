@@ -387,3 +387,4 @@ EOT;
         'segments_count' => count($segmentFiles)
     ];
 }
+?>
