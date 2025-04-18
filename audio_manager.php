@@ -1,5 +1,5 @@
 <?php
-// audio_manager.php - Gestione audio di sottofondo e funzioni correlate
+// audio_manager.php - Gestione audio di sottofondo e funzioni correlate - VERSIONE CORRETTA
 
 /**
  * Catalogo di audio di sottofondo gratuiti disponibili online
@@ -159,14 +159,25 @@ function getRandomAudioFromCategory($category) {
  */
 function applyBackgroundAudio($videoPath, $audioPath, $outputPath, $volume = 0.3) {
     // Verifica l'esistenza dei file
-    if (!file_exists($videoPath) || !file_exists($audioPath)) {
-        error_log("File non esistenti: video = $videoPath, audio = $audioPath");
+    if (!file_exists($videoPath)) {
+        error_log("File video non esistente: $videoPath");
         return false;
+    }
+    
+    if (!file_exists($audioPath)) {
+        error_log("File audio non esistente: $audioPath");
+        return false;
+    }
+    
+    // Crea la directory di output se non esiste
+    $outputDir = dirname($outputPath);
+    if (!file_exists($outputDir)) {
+        mkdir($outputDir, 0777, true);
     }
     
     // Ottieni la durata del video (ottimizzato)
     $cmd = "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " . 
-           escapeshellarg($videoPath);
+           escapeshellarg($videoPath) . " 2>&1";
     $videoDuration = floatval(trim(shell_exec($cmd)));
     
     if ($videoDuration <= 0) {
@@ -174,38 +185,56 @@ function applyBackgroundAudio($videoPath, $audioPath, $outputPath, $volume = 0.3
         return false;
     }
     
-    // Approccio ottimizzato: esegui un singolo comando FFmpeg che:
-    // 1. Prepara la traccia musicale (loop)
-    // 2. Regola il volume
-    // 3. Combina il video originale con la musica in background
-    // Ottimizzazione drastica: usa un singolo comando complesso invece di creare file intermedii
-    $cmd = "ffmpeg -i " . escapeshellarg($videoPath) . 
+    // APPROCCIO SEMPLIFICATO E ROBUSTO
+    // Usa un singolo comando FFmpeg con opzioni sicure
+    $cmd = "ffmpeg -y -i " . escapeshellarg($videoPath) . 
            " -stream_loop -1 -i " . escapeshellarg($audioPath) . 
-           " -filter_complex \"[1:a]volume=" . $volume . ",apad[background];" . 
-           "[0:a][background]amix=inputs=2:duration=first:dropout_transition=3[audio]\" " . 
-           " -map 0:v -map [audio] -c:v copy -c:a aac -b:a 192k -shortest " . 
-           escapeshellarg($outputPath) . " -y";
+           " -filter_complex \"[1:a]volume=" . $volume . "[music];[0:a][music]amix=inputs=2:duration=first\" " .
+           " -c:v copy -c:a aac -b:a 128k -shortest " . 
+           escapeshellarg($outputPath) . " 2>&1";
     
+    error_log("Comando audio: $cmd");
     exec($cmd, $output, $returnCode);
+    error_log("Output comando audio: " . implode("\n", $output));
+    error_log("Codice ritorno audio: $returnCode");
     
     // Verifica il successo dell'operazione
     $success = $returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0;
     
-    // Se fallisce, prova un approccio più semplice
-    if (!$success) {
-        error_log("Fallita applicazione audio con approccio ottimizzato, provo metodo più semplice");
-        
-        $cmd = "ffmpeg -i " . escapeshellarg($videoPath) . 
-               " -stream_loop -1 -i " . escapeshellarg($audioPath) . 
-               " -filter_complex \"[1:a]volume=" . $volume . "[music];[0:a][music]amix=inputs=2:duration=first\" " .
-               " -c:v copy -c:a aac -b:a 128k -shortest " . 
-               escapeshellarg($outputPath) . " -y";
-        
-        exec($cmd, $fallbackOutput, $fallbackCode);
-        $success = $fallbackCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0;
+    if ($success) {
+        error_log("Audio applicato con successo: $outputPath (" . filesize($outputPath) . " bytes)");
+        return true;
     }
     
-    return $success;
+    // Se fallisce, prova un approccio più semplice con solo concatenazione audio
+    error_log("Fallito primo tentativo, provo con approccio più semplice");
+    $cmd = "ffmpeg -y -i " . escapeshellarg($videoPath) . 
+           " -i " . escapeshellarg($audioPath) . 
+           " -filter_complex \"[1:a]aloop=loop=-1:size=2000000[a1];[a1]volume=" . $volume . "[a1v];[0:a][a1v]amix=inputs=2:duration=first[a]\" " . 
+           " -map 0:v -map \"[a]\" -c:v copy -c:a aac -b:a 128k -shortest " . 
+           escapeshellarg($outputPath) . " 2>&1";
+    
+    error_log("Secondo tentativo comando audio: $cmd");
+    exec($cmd, $fallbackOutput, $fallbackCode);
+    error_log("Output secondo tentativo: " . implode("\n", $fallbackOutput));
+    
+    if ($fallbackCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0) {
+        error_log("Audio applicato con successo (secondo tentativo): $outputPath (" . filesize($outputPath) . " bytes)");
+        return true;
+    }
+    
+    // Se anche il secondo tentativo fallisce, prova con un comando ultra-semplificato
+    error_log("Fallito secondo tentativo, provo con approccio ultra-semplificato");
+    $cmd = "ffmpeg -y -i " . escapeshellarg($videoPath) . 
+           " -i " . escapeshellarg($audioPath) . 
+           " -c:v copy -c:a aac -b:a 128k -filter_complex \"[1:a]volume=" . $volume . "[a1];[0:a][a1]amerge=inputs=2[a]\" -map 0:v -map \"[a]\" " . 
+           escapeshellarg($outputPath) . " 2>&1";
+    
+    error_log("Terzo tentativo comando audio: $cmd");
+    exec($cmd, $finalOutput, $finalCode);
+    error_log("Output terzo tentativo: " . implode("\n", $finalOutput));
+    
+    return $finalCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0;
 }
 
 /**
@@ -224,8 +253,11 @@ function downloadAudio($url, $outputPath) {
     
     // Verifica se il file è già stato scaricato
     if (file_exists($outputPath) && filesize($outputPath) > 0) {
+        error_log("File audio già scaricato: $outputPath");
         return true;
     }
+    
+    error_log("Tentativo download audio da $url a $outputPath");
     
     // Usa cURL con gli header corretti
     if (function_exists('curl_init')) {
@@ -251,31 +283,28 @@ function downloadAudio($url, $outputPath) {
         
         // Verifica che il file sia stato scaricato correttamente
         if (!$success || !file_exists($outputPath) || filesize($outputPath) <= 0) {
+            error_log("Download non riuscito con cURL");
             if (file_exists($outputPath)) {
                 unlink($outputPath); // Rimuovi il file incompleto
             }
-            // Prova con un'alternativa locale
-            $audioFiles = [
-                'assets/audio/background_music_1.mp3',
-                'assets/audio/background_music_2.mp3',
-                'temp/default_background.mp3'
-            ];
             
-            foreach ($audioFiles as $audioFile) {
-                if (file_exists($audioFile)) {
-                    return copy($audioFile, $outputPath);
-                }
-            }
-            
-            // Crea un audio di fallback con FFmpeg
-            $ffmpegCmd = "ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 60 -c:a aac -b:a 128k " . escapeshellarg($outputPath);
-            exec($ffmpegCmd);
-            
-            return file_exists($outputPath) && filesize($outputPath) > 0;
+            // Prova a usare file_get_contents come fallback
+            return downloadAudioFallback($url, $outputPath);
         }
         
+        error_log("Download completato con successo: $outputPath (" . filesize($outputPath) . " bytes)");
         return true;
     }
+    
+    // Se cURL non è disponibile, usa file_get_contents
+    return downloadAudioFallback($url, $outputPath);
+}
+
+/**
+ * Metodo fallback per scaricare audio
+ */
+function downloadAudioFallback($url, $outputPath) {
+    error_log("Utilizzo file_get_contents come fallback per scaricare $url");
     
     // Fallback a file_get_contents con context per impostare gli header
     $context = stream_context_create([
@@ -283,30 +312,29 @@ function downloadAudio($url, $outputPath) {
             'header' => [
                 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Referer: https://pixabay.com/'
-            ]
+            ],
+            'timeout' => 60
         ]
     ]);
     
     try {
         $fileContent = file_get_contents($url, false, $context);
         if ($fileContent === false) {
-            // Se fallisce, genera un audio di fallback
-            $ffmpegCmd = "ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 60 -c:a aac -b:a 128k " . escapeshellarg($outputPath);
-            exec($ffmpegCmd);
-            
-            return file_exists($outputPath) && filesize($outputPath) > 0;
+            error_log("Fallimento file_get_contents, tentativo di generare un audio di fallback");
+            return createLocalBackgroundAudio($outputPath, 'music', 60);
         }
         
         $result = file_put_contents($outputPath, $fileContent);
-        return ($result !== false);
+        if ($result === false || filesize($outputPath) <= 0) {
+            error_log("Errore nel salvataggio del file audio");
+            return createLocalBackgroundAudio($outputPath, 'music', 60);
+        }
+        
+        error_log("Download completato con file_get_contents: $outputPath (" . filesize($outputPath) . " bytes)");
+        return true;
     } catch (Exception $e) {
-        error_log("Errore nel download dell'audio: " . $e->getMessage());
-        
-        // Genera un audio di fallback con FFmpeg
-        $ffmpegCmd = "ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 60 -c:a aac -b:a 128k " . escapeshellarg($outputPath);
-        exec($ffmpegCmd);
-        
-        return file_exists($outputPath) && filesize($outputPath) > 0;
+        error_log("Eccezione durante il download dell'audio: " . $e->getMessage());
+        return createLocalBackgroundAudio($outputPath, 'music', 60);
     }
 }
 
@@ -319,9 +347,25 @@ function downloadAudio($url, $outputPath) {
  * @return bool Successo dell'operazione
  */
 function createLocalBackgroundAudio($outputPath, $type = 'music', $duration = 60) {
+    error_log("Creazione audio di fallback: $outputPath");
+    
     $audioDir = dirname($outputPath);
     if (!file_exists($audioDir)) {
         mkdir($audioDir, 0777, true);
+    }
+    
+    // Verifica se esistono audio locali predefiniti da utilizzare
+    $defaultAudios = [
+        'assets/audio/background_music_1.mp3',
+        'assets/audio/background_music_2.mp3',
+        'temp/default_background.mp3'
+    ];
+    
+    foreach ($defaultAudios as $defaultAudio) {
+        if (file_exists($defaultAudio)) {
+            error_log("Utilizzo audio predefinito: $defaultAudio");
+            return copy($defaultAudio, $outputPath);
+        }
     }
     
     // Comando base per generare un tono
@@ -336,10 +380,19 @@ function createLocalBackgroundAudio($outputPath, $type = 'music', $duration = 60
     }
     
     // Esegui il comando
-    $cmd = "$baseCmd " . escapeshellarg($outputPath) . " -y";
+    $cmd = "$baseCmd " . escapeshellarg($outputPath) . " -y 2>&1";
+    error_log("Comando generazione audio: $cmd");
     exec($cmd, $output, $returnCode);
+    error_log("Output generazione audio: " . implode("\n", $output));
     
-    return ($returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0);
+    $success = $returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0;
+    if ($success) {
+        error_log("Audio generato con successo: $outputPath (" . filesize($outputPath) . " bytes)");
+    } else {
+        error_log("Fallimento generazione audio, codice: $returnCode");
+    }
+    
+    return $success;
 }
 
 /**
