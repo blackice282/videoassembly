@@ -146,7 +146,8 @@ function detectMovingPeople($videoPath) {
                 $segmentsInfo[] = [
                     'start' => $start,
                     'end' => $start + $segmentLength,
-                    'people_count' => mt_rand(1, 2)
+                    'people_count' => mt_rand(1, 2),
+                    'importance' => mt_rand(40, 80) / 100
                 ];
             }
         }
@@ -160,12 +161,15 @@ function detectMovingPeople($videoPath) {
     }
     
     // Ordina i segmenti per prioritizzare quelli con più persone
-    // Questo è un cambiamento chiave: ora favoriamo scene con interazioni
-    array_multisort(
-        array_column($segmentsInfo, 'people_count'), SORT_DESC,
-        array_column($segmentsInfo, 'importance'), SORT_DESC,
-        $segmentsInfo, $segmentFiles
-    );
+    // Correzione: Assicuriamoci che gli array abbiano tutti la stessa lunghezza
+    if (count($segmentsInfo) == count($segmentFiles)) {
+        // Prepariamo array separati per l'ordinamento (people_count e importance)
+        $peopleCount = array_column($segmentsInfo, 'people_count');
+        $importance = array_column($segmentsInfo, 'importance');
+        
+        // Ordina prima per numero di persone, poi per importanza
+        array_multisort($peopleCount, SORT_DESC, $importance, SORT_DESC, $segmentsInfo, $segmentFiles);
+    }
     
     return [
         'success' => true,
