@@ -1,5 +1,5 @@
 <?php
-// video_effects.php - Gestisce gli effetti video
+// video_effects.php - Gestisce gli effetti video - VERSIONE CORRETTA
 
 /**
  * Catalogo di effetti video disponibili
@@ -63,34 +63,56 @@ function getVideoEffects() {
  * @return bool Successo dell'operazione
  */
 function applyVideoEffect($videoPath, $outputPath, $effectName) {
+    // Verifica esistenza del file di input
+    if (!file_exists($videoPath) || filesize($videoPath) <= 0) {
+        error_log("File di input non valido o vuoto: $videoPath");
+        return false;
+    }
+    
     $effects = getVideoEffects();
     
     if (!isset($effects[$effectName])) {
+        error_log("Effetto non trovato: $effectName");
         return false;
     }
     
     $effect = $effects[$effectName];
     $filter = $effect['filter'];
     
-    // Applica il filtro video mantenendo l'audio originale
-    // Versione semplificata e più compatibile
-    $cmd = "ffmpeg -i " . escapeshellarg($videoPath) . 
-           " -vf \"$filter\" -c:v libx264 -preset fast -crf 23 -c:a copy " . 
-           escapeshellarg($outputPath);
+    // Crea la directory di output se non esiste
+    $outputDir = dirname($outputPath);
+    if (!file_exists($outputDir)) {
+        mkdir($outputDir, 0777, true);
+    }
+    
+    // Approccio semplificato e robusto per applicare l'effetto
+    $cmd = "ffmpeg -y -i " . escapeshellarg($videoPath) . 
+           " -vf " . escapeshellarg($filter) . 
+           " -c:v libx264 -preset ultrafast -crf 23 -c:a copy " . 
+           escapeshellarg($outputPath) . " 2>&1";
     
     exec($cmd, $output, $returnCode);
+    
+    // Log per debugging
+    error_log("Comando effetto: $cmd");
+    error_log("Output comando: " . implode("\n", $output));
+    error_log("Codice ritorno: $returnCode");
     
     // Verifica se l'output esiste e ha dimensioni maggiori di zero
     if ($returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0) {
+        error_log("Effetto applicato con successo: $outputPath (" . filesize($outputPath) . " bytes)");
         return true;
     }
     
-    // Se fallisce, prova con un approccio alternativo senza filtri complessi
-    $cmd = "ffmpeg -i " . escapeshellarg($videoPath) . 
-           " -c:v libx264 -preset fast -crf 23 -c:a copy " . 
-           escapeshellarg($outputPath);
+    // Se fallisce, prova con un approccio meno complesso
+    $cmd = "ffmpeg -y -i " . escapeshellarg($videoPath) . 
+           " -vf eq=contrast=1.1:brightness=0.05:saturation=1.1 " . 
+           " -c:v libx264 -preset ultrafast -crf 23 -c:a copy " . 
+           escapeshellarg($outputPath) . " 2>&1";
     
     exec($cmd, $output, $returnCode);
+    error_log("Secondo tentativo comando: $cmd");
+    error_log("Output secondo tentativo: " . implode("\n", $output));
     
     return $returnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0;
 }
