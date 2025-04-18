@@ -334,46 +334,77 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             echo "🔄 Creazione del video finale...<br>";
             concatenateTsFiles($uploaded_ts_files, $outputFinal);
             
-            // Applica effetto video se richiesto
-            if (!empty($videoEffect)) {
-                $effects = getVideoEffects();
-                if (isset($effects[$videoEffect])) {
-                    echo "🎨 Applicazione effetto " . $effects[$videoEffect]['name'] . "...<br>";
-                    $outputWithEffect = getConfig('paths.uploads', 'uploads') . '/video_effect_' . $timestamp . '.mp4';
-                    if (applyVideoEffect($outputFinal, $outputWithEffect, $videoEffect)) {
-                        // Se l'effetto è stato applicato con successo, usa il nuovo file
-                        unlink($outputFinal); // Rimuovi il file senza effetto
-                        $outputFinal = $outputWithEffect;
+         // Trova questa parte nel file index.php (intorno alla riga 226) e sostituiscila con la versione seguente:
+
+                // Applica effetto video se richiesto
+                if (!empty($videoEffect)) {
+                    $effects = getVideoEffects();
+                    if (isset($effects[$videoEffect])) {
+                        echo "🎨 Applicazione effetto " . $effects[$videoEffect]['name'] . "...<br>";
+                        $outputWithEffect = getConfig('paths.uploads', 'uploads') . '/video_effect_' . $timestamp . '.mp4';
+                        if (applyVideoEffect($outputFinal, $outputWithEffect, $videoEffect)) {
+                            // Se l'effetto è stato applicato con successo, usa il nuovo file
+                            if (file_exists($outputWithEffect) && filesize($outputWithEffect) > 0) {
+                                // Verifica che il file ha dimensioni adeguate prima di eliminare l'originale
+                                unlink($outputFinal); // Rimuovi il file senza effetto
+                                $outputFinal = $outputWithEffect;
+                                echo "✅ Effetto applicato con successo<br>";
+                            } else {
+                                echo "⚠️ Il file con effetto risulta danneggiato, si utilizza l'originale<br>";
+                            }
+                        } else {
+                            echo "⚠️ Non è stato possibile applicare l'effetto video.<br>";
+                        }
                     }
                 }
-            }
-            
-            // Applica audio di sottofondo se richiesto
-            if (!empty($audioCategory)) {
-                echo "🔊 Aggiunta audio di sottofondo " . ucfirst($audioCategory) . "...<br>";
-                $audio = getRandomAudioFromCategory($audioCategory);
                 
-                if ($audio) {
-                    // Scarica l'audio se necessario
-                    $audioDir = getConfig('paths.temp', 'temp') . '/audio';
-                    if (!file_exists($audioDir)) {
-                        mkdir($audioDir, 0777, true);
-                    }
+                // Applica audio di sottofondo se richiesto
+                if (!empty($audioCategory)) {
+                    echo "🔊 Aggiunta audio di sottofondo " . ucfirst($audioCategory) . "...<br>";
+                    $audio = getRandomAudioFromCategory($audioCategory);
                     
-                    $audioFile = $audioDir . '/' . basename($audio['url']);
-                    if (!file_exists($audioFile)) {
-                        downloadAudio($audio['url'], $audioFile);
-                    }
-                    
-                    // Applica l'audio al video
-                    $outputWithAudio = getConfig('paths.uploads', 'uploads') . '/video_audio_' . $timestamp . '.mp4';
-                    if (applyBackgroundAudio($outputFinal, $audioFile, $outputWithAudio, $audioVolume)) {
-                        // Se l'audio è stato applicato con successo, usa il nuovo file
-                        unlink($outputFinal); // Rimuovi il file senza audio
-                        $outputFinal = $outputWithAudio;
+                    if ($audio) {
+                        // Scarica l'audio se necessario
+                        $audioDir = getConfig('paths.temp', 'temp') . '/audio';
+                        if (!file_exists($audioDir)) {
+                            mkdir($audioDir, 0777, true);
+                        }
+                        
+                        $audioFile = $audioDir . '/' . basename($audio['url']);
+                        if (!file_exists($audioFile)) {
+                            $downloadSuccess = downloadAudio($audio['url'], $audioFile);
+                            if (!$downloadSuccess) {
+                                echo "⚠️ Impossibile scaricare l'audio.<br>";
+                                // Usa un audio locale se disponibile
+                                $localAudio = 'assets/audio/default_background.mp3';
+                                if (file_exists($localAudio)) {
+                                    $audioFile = $localAudio;
+                                    echo "✅ Utilizzo audio di backup locale<br>";
+                                } else {
+                                    $audioFile = null;
+                                }
+                            }
+                        }
+                        
+                        // Applica l'audio al video se disponibile
+                        if ($audioFile && file_exists($audioFile)) {
+                            $outputWithAudio = getConfig('paths.uploads', 'uploads') . '/video_audio_' . $timestamp . '.mp4';
+                            if (applyBackgroundAudio($outputFinal, $audioFile, $outputWithAudio, $audioVolume)) {
+                                // Verifica che il file esista e abbia dimensioni
+                                if (file_exists($outputWithAudio) && filesize($outputWithAudio) > 0) {
+                                    // Se l'audio è stato applicato con successo, usa il nuovo file
+                                    unlink($outputFinal); // Rimuovi il file senza audio
+                                    $outputFinal = $outputWithAudio;
+                                    echo "✅ Audio aggiunto: " . $audio['name'] . "<br>";
+                                } else {
+                                    echo "⚠️ File con audio danneggiato, si utilizza l'originale<br>";
+                                }
+                            } else {
+                                echo "⚠️ Non è stato possibile aggiungere l'audio.<br>";
+                            }
+                        }
                     }
                 }
-            }
             
             echo "<br>🎉 <strong>Montaggio completato!</strong> <a href='$outputFinal' download>Clicca qui per scaricare il video</a>";
             
