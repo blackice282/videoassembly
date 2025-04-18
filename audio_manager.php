@@ -145,8 +145,9 @@ function downloadAudio($url, $outputPath) {
     }
     
     // Scarica il file
-    $fileContent = file_get_contents($url);
+    $fileContent = @file_get_contents($url);
     if ($fileContent === false) {
+        error_log("Impossibile scaricare l'audio da: $url");
         return false;
     }
     
@@ -169,28 +170,54 @@ function applyBackgroundAudio($videoPath, $audioPath, $outputPath, $volume = 0.3
     $cmd = "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " . escapeshellarg($videoPath);
     $videoDuration = floatval(trim(shell_exec($cmd)));
     
-    // Crea un file audio della stessa durata del video (loop se necessario)
-    $tempAudioPath = dirname($outputPath) . '/temp_audio_' . uniqid() . '.mp3';
-    $audioCmd = "ffmpeg -i " . escapeshellarg($audioPath) . " -filter_complex \"aloop=loop=-1:size=2000000000,atrim=0:{$videoDuration}\" " . escapeshellarg($tempAudioPath);
-    exec($audioCmd, $output, $returnCode);
-    
-    if ($returnCode !== 0) {
+    if ($videoDuration <= 0) {
+        error_log("Impossibile determinare la durata del video");
         return false;
     }
     
-    // Mixa l'audio originale del video con l'audio di sottofondo
+    // Verifica che l'audio esista
+    if (!file_exists($audioPath)) {
+        error_log("File audio non trovato: $audioPath");
+        return false;
+    }
+    
+    // Metodo semplificato per aggiungere l'audio
+    // Prima estrae l'audio originale
+    $originalAudioPath = dirname($outputPath) . '/original_audio_' . uniqid() . '.aac';
+    $extractCmd = "ffmpeg -i " . escapeshellarg($videoPath) . " -vn -c:a copy " . escapeshellarg($originalAudioPath);
+    exec($extractCmd);
+    
+    // Poi crea un file audio in loop della lunghezza del video
+    $loopedAudioPath = dirname($outputPath) . '/looped_audio_' . uniqid() . '.mp3';
+    $loopCmd = "ffmpeg -stream_loop -1 -i " . escapeshellarg($audioPath) . 
+              " -t $videoDuration -c:a copy " . escapeshellarg($loopedAudioPath);
+    exec($loopCmd);
+    
+    // Infine, combina il video originale con i due audio mixati
     $mixCmd = "ffmpeg -i " . escapeshellarg($videoPath) . 
-              " -i " . escapeshellarg($tempAudioPath) . 
-              " -filter_complex \"[0:a]volume=1[a1];[1:a]volume={$volume}[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=0\" " .
+              " -i " . escapeshellarg($loopedAudioPath) . 
+              " -i " . escapeshellarg($originalAudioPath) . 
+              " -filter_complex \"[1:a]volume=$volume[background];[2:a][background]amix=inputs=2:duration=first\" " .
               " -c:v copy " . escapeshellarg($outputPath);
     exec($mixCmd, $mixOutput, $mixReturnCode);
     
-    // Rimuovi il file audio temporaneo
-    if (file_exists($tempAudioPath)) {
-        unlink($tempAudioPath);
+    // Pulisci i file temporanei
+    if (file_exists($originalAudioPath)) unlink($originalAudioPath);
+    if (file_exists($loopedAudioPath)) unlink($loopedAudioPath);
+    
+    // Verifica se il file di output esiste e ha dimensioni
+    if ($mixReturnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0) {
+        return true;
     }
     
-    return $mixReturnCode === 0 && file_exists($outputPath);
+    // Fallback: se il mix fallisce, prova un metodo più semplice
+    $simpleMixCmd = "ffmpeg -i " . escapeshellarg($videoPath) . 
+                   " -i " . escapeshellarg($audioPath) . 
+                   " -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest " . 
+                   escapeshellarg($outputPath);
+    exec($simpleMixCmd, $simpleOutput, $simpleReturnCode);
+    
+    return $simpleReturnCode === 0 && file_exists($outputPath) && filesize($outputPath) > 0;
 }
 
 /**
