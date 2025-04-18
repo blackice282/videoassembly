@@ -535,3 +535,123 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 
                 // Aggiorna quando cambia
                 volumeSlider.addEventListener('input', function() {
+                    volumeValue.textContent = this.value;
+                });
+            }
+        });
+    </script>
+</head>
+<body>
+    <h1>🎬 VideoAssembly - Montaggio Video Automatico</h1>
+    
+    <div class="upload-container">
+        <form method="POST" enctype="multipart/form-data">
+            <h3>Carica i tuoi video</h3>
+            <input type="file" name="files[]" multiple accept="video/mp4,video/quicktime,video/x-msvideo">
+            
+            <div class="options">
+                <div class="option-group">
+                    <h3>Modalità di elaborazione:</h3>
+                    <label>
+                        <input type="radio" name="mode" value="simple" checked> 
+                        Montaggio semplice (concatena i video)
+                    </label>
+                    <label>
+                        <input type="radio" name="mode" value="detect_people"> 
+                        Rilevamento persone (estrae scene con persone in movimento)
+                    </label>
+                </div>
+                
+                <div class="option-group">
+                    <h3>Durata del video finale:</h3>
+                    <div class="duration-controls">
+                        <select name="duration">
+                            <option value="0">Durata originale</option>
+                            <option value="1">1 minuto</option>
+                            <option value="3">3 minuti</option>
+                            <option value="5">5 minuti</option>
+                            <option value="10">10 minuti</option>
+                            <option value="15">15 minuti</option>
+                            <option value="30">30 minuti</option>
+                        </select>
+                    </div>
+                    
+                    <div id="durationMethodOptions" style="margin-top: 10px; display: none;">
+                        <h4>Metodo di adattamento:</h4>
+                        <label>
+                            <input type="radio" name="duration_method" value="select_interactions" checked> 
+                            Interazioni tra persone (priorità a scene con più persone)
+                        </label>
+                        <label>
+                            <input type="radio" name="duration_method" value="select"> 
+                            Selezione migliori (scene più importanti)
+                        </label>
+                        <label>
+                            <input type="radio" name="duration_method" value="trim"> 
+                            Taglio proporzionale (tutte le scene, ridotte)
+                        </label>
+                        <label>
+                            <input type="radio" name="duration_method" value="speed"> 
+                            Modifica velocità (accelera il video)
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="option-group">
+                    <h3>Audio di sottofondo:</h3>
+                    <select name="audio_category">
+                        <option value="">Nessun audio</option>
+                        <option value="emozionale">Emozionale</option>
+                        <option value="bambini">Bambini</option>
+                        <option value="azione">Azione</option>
+                        <option value="relax">Relax</option>
+                        <option value="divertimento">Divertimento</option>
+                        <option value="vacanze">Vacanze</option>
+                    </select>
+                    
+                    <div style="margin-top: 10px;">
+                        <label for="audio_volume">Volume: <span id="volume-value">0.3</span></label>
+                        <input type="range" name="audio_volume" min="0.1" max="0.7" step="0.1" value="0.3" class="range-slider">
+                    </div>
+                </div>
+                
+                <div class="option-group">
+                    <h3>Effetto video:</h3>
+                    <select name="video_effect">
+                        <option value="">Nessun effetto</option>
+                        <option value="vintage">Vintage/Retrò</option>
+                        <option value="bianco_nero">Bianco e Nero</option>
+                        <option value="caldo">Toni Caldi</option>
+<option value="freddo">Toni Freddi</option>
+                        <option value="dream">Effetto Sogno</option>
+                        <option value="cinema">Cinema</option>
+                        <option value="hdr">Effetto HDR</option>
+                        <option value="brillante">Colori Brillanti</option>
+                        <option value="instagram">Instagram Style</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button type="submit">Carica e Monta</button>
+        </form>
+    </div>
+    
+    <div class="instructions">
+        <h3>📋 Istruzioni</h3>
+        <ol>
+            <li><strong>Carica i tuoi video</strong> - Seleziona uno o più file video dal tuo dispositivo</li>
+            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento di scene con persone</li>
+            <li><strong>Imposta la durata</strong> - Scegli quanto dovrà durare il video finale (opzionale)</li>
+            <li><strong>Personalizza l'audio</strong> - Aggiungi un sottofondo musicale a scelta</li>
+            <li><strong>Scegli un effetto</strong> - Applica filtri visivi per migliorare l'aspetto</li>
+            <li><strong>Avvia il montaggio</strong> - Clicca su "Carica e Monta" e attendi il completamento</li>
+            <li><strong>Scarica il risultato</strong> - Una volta completato, scarica il video finale</li>
+        </ol>
+        <p><em>Nota: Il rilevamento di persone darà priorità alle scene con più persone insieme, ideale per momenti di interazione.</em></p>
+    </div>
+    
+    <div class="privacy-info">
+        <?php echo getPrivacyPolicyHtml(); ?>
+    </div>
+</body>
+</html>
