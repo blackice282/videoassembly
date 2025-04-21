@@ -584,11 +584,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             }
                             $outputFinal = $result;
                             echo "✅ Audio aggiunto con successo (ottimizzato per non coprire il parlato)<br>";
-                        } else {
+                         } else {
                             echo "⚠️ Non è stato possibile aggiungere l'audio di sottofondo.<br>";
                         }
                     }
-                    <?php if (function_exists('getPrivacyPolicyHtml')): ?>
+                    ?>
+                    
+    <?php if (function_exists('getPrivacyPolicyHtml')): ?>
     <div class="privacy-info">
         <?php echo getPrivacyPolicyHtml(); ?>
     </div>
