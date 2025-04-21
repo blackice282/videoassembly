@@ -417,6 +417,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             }
         }
+     }
         echo "</div>";
         
         // Procedi con la concatenazione appropriata in base alla modalità
