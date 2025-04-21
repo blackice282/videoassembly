@@ -445,7 +445,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     debugLog("Errore nella creazione del segmento TS: $tsFile", "error");
                 }
             }
-            
+              }
             if (count($segment_ts_files) > 0) {
                 // Ordina i segmenti per nome file
                 sort($segment_ts_files);
