@@ -570,6 +570,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             }
                         }
                     }
+                 }
                     
                     // Applica audio di sottofondo se richiesto
                     if (!empty($audioCategory)) {
