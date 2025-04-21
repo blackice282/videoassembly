@@ -423,7 +423,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if ($mode === 'detect_people' && count($segments_to_process) > 0) {
             echo "<br>⏳ <strong>Finalizzazione del montaggio...</strong><br>";
             debugLog("Inizia finalizzazione montaggio con " . count($segments_to_process) . " segmenti");
-            
+             }
             // Converti i segmenti rilevati in formato .ts
             $segment_ts_files = [];
             
