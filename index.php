@@ -1,39 +1,27 @@
 <?php
-// Avvia la sessione per gestire l'ID sessione per la privacy
-session_start();
-
 // Includi i file necessari
 require_once 'config.php';
 require_once 'ffmpeg_script.php';
 require_once 'people_detection.php';
 require_once 'transitions.php';
 require_once 'duration_editor.php';
-require_once 'audio_manager.php';
-require_once 'video_effects.php';
 require_once 'privacy_manager.php';
+require_once 'video_effects.php';
+require_once 'audio_manager.php';
 require_once 'face_detection.php';
 
-// Imposta una policy di privacy predefinita
-if (!getConfig('privacy.retention_hours', false)) {
-    setPrivacyPolicy(48, true);
-}
-
-// Aggiungi una funzione di debug per tracciare l'esecuzione
-function debugLog($message, $level = 'info') {
-    $logDir = 'logs';
-    if (!file_exists($logDir)) {
-        mkdir($logDir, 0777, true);
-    }
-    
-    $logFile = $logDir . '/debug_' . date('Ymd') . '.log';
-    $timestamp = date('Y-m-d H:i:s');
-    $formattedMessage = "[$timestamp][$level] $message\n";
-    
-    file_put_contents($logFile, $formattedMessage, FILE_APPEND);
-    
-    // Anche mostrare in pagina se richiesto
-    if (getConfig('system.debug', false) || $level === 'error') {
-        echo "<small style='color: " . ($level === 'error' ? 'red' : '#666') . ";'>Debug: $message</small><br>";
+// Funzione di logging per debug
+function debugLog($message, $level = "info") {
+    if (getConfig('system.debug', false)) {
+        $logFile = 'logs/app_' . date('Y-m-d') . '.log';
+        $logDir = dirname($logFile);
+        
+        if (!file_exists($logDir)) {
+            mkdir($logDir, 0777, true);
+        }
+        
+        $logMessage = "[" . date('Y-m-d H:i:s') . "] [$level] $message\n";
+        file_put_contents($logFile, $logMessage, FILE_APPEND);
     }
 }
 
@@ -47,58 +35,29 @@ function createUploadsDir() {
 }
 
 function convertToTs($inputFile, $outputTs) {
-    // Utilizza copy invece di ricodifica per una conversione più veloce
-    $cmd = "ffmpeg -i " . escapeshellarg($inputFile) . 
-           " -c copy -bsf:v h264_mp4toannexb -f mpegts " . 
-           escapeshellarg($outputTs);
-    debugLog("Esecuzione comando TS: $cmd");
+    $cmd = "ffmpeg -i \"$inputFile\" -c copy -bsf:v h264_mp4toannexb -f mpegts \"$outputTs\"";
     shell_exec($cmd);
     
-    // Verifica il risultato
-    if (file_exists($outputTs) && filesize($outputTs) > 0) {
-        debugLog("File TS creato con successo: $outputTs (" . filesize($outputTs) . " bytes)");
-        return true;
-    } else {
-        debugLog("Errore nella creazione del file TS: $outputTs", "error");
-        return false;
-    }
+    // Verifica se il file è stato creato correttamente
+    return file_exists($outputTs) && filesize($outputTs) > 0;
 }
 
 function concatenateTsFiles($tsFiles, $outputFile) {
-    if (empty($tsFiles)) {
-        debugLog("Nessun file TS da concatenare", "error");
-        return false;
-    }
-    
     $tsList = implode('|', $tsFiles);
     $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$outputFile\"";
-    debugLog("Esecuzione comando concatenazione: $cmd");
     shell_exec($cmd);
     
-    // Verifica il risultato
-    if (file_exists($outputFile) && filesize($outputFile) > 0) {
-        debugLog("File concatenato creato con successo: $outputFile (" . filesize($outputFile) . " bytes)");
-        return true;
-    } else {
-        debugLog("Errore nella concatenazione dei file TS", "error");
-        return false;
-    }
+    // Verifica se il file è stato creato correttamente
+    return file_exists($outputFile) && filesize($outputFile) > 0;
 }
 
 function cleanupTempFiles($files, $keepOriginals = false) {
     foreach ($files as $file) {
         if (file_exists($file) && (!$keepOriginals || strpos($file, 'uploads/') === false)) {
-            if (unlink($file)) {
-                debugLog("File temporaneo rimosso: $file");
-            } else {
-                debugLog("Impossibile rimuovere file temporaneo: $file", "error");
-            }
+            unlink($file);
         }
     }
 }
-
-// Effettua una pulizia automatica dei file temporanei vecchi ad ogni caricamento
-$cleanupResult = cleanupFiles('temp', 3, false);
 
 // Gestione dell'invio del form
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -115,30 +74,34 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                      intval($_POST['duration']) * 60 : 0;  // 0 significa nessun limite
     
     // Metodo di adattamento della durata
-    $durationMethod = isset($_POST['duration_method']) ? $_POST['duration_method'] : 'select_interactions';
+    $durationMethod = isset($_POST['duration_method']) ? $_POST['duration_method'] : 'trim';
     setConfig('duration_editor.method', $durationMethod);
     
-    // Audio di sottofondo
-    $audioCategory = isset($_POST['audio_category']) ? $_POST['audio_category'] : '';
-    $audioVolume = isset($_POST['audio_volume']) ? floatval($_POST['audio_volume']) : 0.3;
+    // Ottieni le opzioni per gli effetti
+    $applyVideoEffect = isset($_POST['apply_effect']) && $_POST['apply_effect'] == '1';
+    $selectedEffect = isset($_POST['video_effect']) ? $_POST['video_effect'] : 'none';
     
-    // Effetto video
-    $videoEffect = isset($_POST['video_effect']) ? $_POST['video_effect'] : '';
+    // Ottieni le opzioni per l'audio di sottofondo
+    $applyBackgroundAudio = isset($_POST['apply_audio']) && $_POST['apply_audio'] == '1';
+    $selectedAudioCategory = isset($_POST['audio_category']) ? $_POST['audio_category'] : 'none';
+    $audioVolume = isset($_POST['audio_volume']) && is_numeric($_POST['audio_volume']) ? 
+                  floatval($_POST['audio_volume']) / 100 : 0.3;
     
-    // Privacy dei volti
-    $applyFacePrivacy = isset($_POST['apply_face_privacy']);
-    $excludeYellowVests = isset($_POST['exclude_yellow_vests']);
+    // Opzione per la privacy del volto
+    $applyFacePrivacy = isset($_POST['apply_face_privacy']) && $_POST['apply_face_privacy'] == '1';
+    $excludeYellowVests = isset($_POST['exclude_yellow_vests']) && $_POST['exclude_yellow_vests'] == '1';
     
     // Verifica FFmpeg (unica dipendenza richiesta)
-    if (!checkDependencies()['ffmpeg']) {
-        echo "<div style='background: #f8d7da; padding: 10px; border-radius: 5px; margin: 10px 0; color: #721c24;'>";
-        echo "<strong>⚠️ Errore: FFmpeg non disponibile</strong><br>";
-        echo "L'elaborazione video richiede FFmpeg. Il sistema non può funzionare senza questa dipendenza.";
-        echo "</div>";
-        exit;
+    if ($mode === 'detect_people') {
+        $deps = checkDependencies();
+        if (!$deps['ffmpeg']) {
+            echo "<div style='background: #f8d7da; padding: 10px; border-radius: 5px; margin: 10px 0; color: #721c24;'>";
+            echo "<strong>⚠️ Errore: FFmpeg non disponibile</strong><br>";
+            echo "Il rilevamento persone richiede FFmpeg. Il sistema non può funzionare senza questa dipendenza.";
+            echo "</div>";
+            exit;
+        }
     }
-    
-    debugLog("Avvio elaborazione con parametri: mode=$mode, targetDuration=$targetDuration, audioCategory=$audioCategory, videoEffect=$videoEffect, applyFacePrivacy=" . ($applyFacePrivacy ? "sì" : "no"));
     
     if (isset($_FILES['files'])) {
         $uploaded_files = [];
@@ -157,12 +120,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                 if (move_uploaded_file($tmp_name, $destination)) {
                     echo "✅ File caricato: $name<br>";
-                    debugLog("File caricato: $destination (" . filesize($destination) . " bytes)");
-                    
-                    // Traccia il file caricato per la privacy
-                    trackFile($destination, $name, 'upload');
-                    
                     $uploaded_files[] = $destination;
+                    
+                    // Traccia il file caricato per privacy
+                    if (function_exists('trackFile')) {
+                        trackFile($destination, $name, 'upload');
+                    }
                     
                     if ($mode === 'detect_people') {
                         // Rileva persone in movimento e ottieni segmenti
@@ -174,57 +137,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         if ($detectionResult['success']) {
                             $num_segments = count($detectionResult['segments']);
                             echo "👥 Rilevate " . $num_segments . " scene interessanti in $detection_time secondi<br>";
-                            debugLog("Rilevate $num_segments scene nel video $name");
-                            
-                            // Mostra informazioni sulle persone rilevate
-                            if (isset($detectionResult['segments_info']) && count($detectionResult['segments_info']) > 0) {
-                                echo "<details>";
-                                echo "<summary>Dettagli delle scene rilevate</summary>";
-                                echo "<div style='max-height: 150px; overflow-y: auto; margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px;'>";
-                                echo "<ul>";
-                                
-                                foreach ($detectionResult['segments_info'] as $idx => $info) {
-                                    $start = gmdate("H:i:s", $info['start']);
-                                    $people = isset($info['people_count']) ? $info['people_count'] : '?';
-                                    $importance = isset($info['importance']) ? round($info['importance'] * 100) : '?';
-                                    
-                                    echo "<li>Scena " . ($idx + 1) . ": a $start - ";
-                                    if ($people >= 2) {
-                                        echo "<strong style='color: green;'>$people persone</strong>";
-                                    } else {
-                                        echo "$people persona";
-                                    }
-                                    echo " (priorità: $importance%)</li>";
-                                }
-                                
-                                echo "</ul>";
-                                echo "</div>";
-                                echo "</details>";
-                            }
                             
                             // Aggiungi tutti i segmenti all'array da processare
                             foreach ($detectionResult['segments'] as $segment) {
                                 $segments_to_process[] = $segment;
-                                debugLog("Aggiunto segmento: $segment (" . (file_exists($segment) ? filesize($segment) : "non esiste") . " bytes)");
                             }
                         } else {
                             echo "⚠️ " . $detectionResult['message'] . " nel file: $name<br>";
-                            debugLog("Errore rilevamento: " . $detectionResult['message'] . " nel file: $name", "error");
                         }
                     } else {
                         // Modalità semplice: converti in .ts per la concatenazione
                         $tsFile = getConfig('paths.uploads', 'uploads') . '/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
                         $tsResult = convertToTs($destination, $tsFile);
-                        if ($tsResult && file_exists($tsFile)) {
+                        if ($tsResult) {
                             $uploaded_ts_files[] = $tsFile;
-                            debugLog("File TS creato: $tsFile");
                         } else {
-                            debugLog("Errore nella creazione del file TS: $tsFile", "error");
+                            echo "⚠️ Errore nella conversione del file: $name<br>";
                         }
                     }
                 } else {
                     echo "❌ Errore nel salvataggio del file: $name<br>";
-                    debugLog("Errore salvataggio: $destination", "error");
                 }
             }
         }
@@ -233,7 +165,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // Procedi con la concatenazione appropriata in base alla modalità
         if ($mode === 'detect_people' && count($segments_to_process) > 0) {
             echo "<br>⏳ <strong>Finalizzazione del montaggio...</strong><br>";
-            debugLog("Inizia finalizzazione montaggio con " . count($segments_to_process) . " segmenti");
             
             // Converti i segmenti rilevati in formato .ts
             $segment_ts_files = [];
@@ -248,17 +179,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     $segment_ts_files[] = $tsFile;
                     
                     // Traccia il file elaborato
-                    trackFile($tsFile, basename($segment), 'processing');
-                    debugLog("Segmento TS creato: $tsFile");
+                    if (function_exists('trackFile')) {
+                        trackFile($tsFile, basename($segment), 'processing');
+                    }
                 } else {
-                    debugLog("Errore nella creazione del segmento TS: $tsFile", "error");
+                    if (function_exists('debugLog')) {
+                        debugLog("Errore nella creazione del segmento TS: $tsFile", "error");
+                    }
                 }
             }
-            
+    
             if (count($segment_ts_files) > 0) {
                 // Ordina i segmenti per nome file
                 sort($segment_ts_files);
-                debugLog("Ordinati " . count($segment_ts_files) . " segmenti TS");
                 
                 // Verifica se è richiesto l'adattamento della durata
                 $segmentsToUse = $segments_to_process;
@@ -269,7 +202,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     // Calcola la durata totale attuale
                     $currentDuration = calculateTotalDuration($segmentsToUse);
                     echo "ℹ️ Durata attuale dei segmenti: " . gmdate("H:i:s", $currentDuration) . "<br>";
-                    debugLog("Adattamento durata: attuale=$currentDuration, target=$targetDuration");
                     
                     // Estrai le informazioni sul numero di persone nei segmenti
                     $segmentsDetailedInfo = [];
@@ -320,7 +252,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     
                     if (!empty($adaptedSegments)) {
                         $segmentsToUse = $adaptedSegments;
-                        debugLog("Segmenti adattati: " . count($segmentsToUse));
                         
                         // Converti i segmenti adattati in formato .ts
                         $segment_ts_files = [];
@@ -329,9 +260,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             $tsResult = convertToTs($segment, $tsFile);
                             if ($tsResult && file_exists($tsFile)) {
                                 $segment_ts_files[] = $tsFile;
-                                debugLog("Segmento adattato TS: $tsFile");
-                            } else {
-                                debugLog("Errore segmento adattato TS: $tsFile", "error");
                             }
                         }
                     }
@@ -348,197 +276,84 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 
                 if (!$concatResult || !file_exists($outputFinal) || filesize($outputFinal) <= 0) {
                     echo "❌ <strong>Errore nella creazione del video finale.</strong><br>";
-                    debugLog("Errore concatenazione: $outputFinal", "error");
+                    if (function_exists('debugLog')) {
+                        debugLog("Errore concatenazione: $outputFinal", "error");
+                    }
                 } else {
-                    debugLog("Video finale creato: $outputFinal (" . filesize($outputFinal) . " bytes)");
-                
-                    // ASSICURATI CHE QUESTA SEZIONE CHE APPLICA EFFETTI SIA ESEGUITA CORRETTAMENTE
-                    // ===========================================================================
+                    // Percorso per il video con le trasformazioni
+                    $processedVideo = $outputFinal;
                     
-                    // Applica effetto video se richiesto
-                    if (!empty($videoEffect)) {
-                        $effects = getVideoEffects();
-                        if (isset($effects[$videoEffect])) {
-                            echo "🎨 Applicazione effetto " . $effects[$videoEffect]['name'] . "...<br>";
-                            $outputWithEffect = getConfig('paths.uploads', 'uploads') . '/video_effect_' . $timestamp . '.mp4';
-                            
-                            // Verifica esistenza e dimensione del file di input
-                            if (!file_exists($outputFinal) || filesize($outputFinal) <= 0) {
-                                echo "⚠️ File di input per l'effetto non valido o vuoto.<br>";
-                                debugLog("File input effetto non valido: $outputFinal", "error");
-                                // Salta l'applicazione dell'effetto
-                            } else {
-                                // Debug dei comandi
-                                debugLog("Applicazione effetto su file " . filesize($outputFinal) . " bytes");
-                                
-                                if (applyVideoEffect($outputFinal, $outputWithEffect, $videoEffect)) {
-                                    // Se l'effetto è stato applicato con successo, usa il nuovo file
-                                    if (file_exists($outputWithEffect) && filesize($outputWithEffect) > 0) {
-                                        // Verifica che il file ha dimensioni adeguate prima di eliminare l'originale
-                                        unlink($outputFinal); // Rimuovi il file senza effetto
-                                        $outputFinal = $outputWithEffect;
-                                        echo "✅ Effetto applicato con successo<br>";
-                                        debugLog("Effetto applicato: $outputWithEffect (" . filesize($outputWithEffect) . " bytes)");
-                                    } else {
-                                        echo "⚠️ Il file con effetto risulta danneggiato, si utilizza l'originale<br>";
-                                        debugLog("File effetto danneggiato: $outputWithEffect", "error");
-                                    }
-                                } else {
-                                    echo "⚠️ Non è stato possibile applicare l'effetto video.<br>";
-                                    debugLog("Fallimento applicazione effetto", "error");
-                                }
-                            }
+                    // Applica la privacy dei volti se richiesto
+                    if ($applyFacePrivacy) {
+                        echo "🎭 Applicazione privacy volti...<br>";
+                        $privacyVideo = getConfig('paths.uploads', 'uploads') . '/privacy_' . $timestamp . '.mp4';
+                        $privacyResult = applyFacePrivacy($processedVideo, $privacyVideo, $excludeYellowVests);
+                        
+                        if ($privacyResult && file_exists($privacyVideo) && filesize($privacyVideo) > 0) {
+                            echo "✅ Privacy volti applicata con successo<br>";
+                            $processedVideo = $privacyVideo;
+                        } else {
+                            echo "⚠️ Impossibile applicare la privacy dei volti, si continua con il video originale<br>";
+                        }
+                    }
+                    
+                    // Applica effetti video se richiesto
+                    if ($applyVideoEffect && $selectedEffect != 'none') {
+                        echo "🎨 Applicazione effetto video: " . $selectedEffect . "...<br>";
+                        $effectVideo = getConfig('paths.uploads', 'uploads') . '/effect_' . $timestamp . '.mp4';
+                        $effectResult = applyVideoEffect($processedVideo, $effectVideo, $selectedEffect);
+                        
+                        if ($effectResult && file_exists($effectVideo) && filesize($effectVideo) > 0) {
+                            echo "✅ Effetto video applicato con successo<br>";
+                            $processedVideo = $effectVideo;
+                        } else {
+                            echo "⚠️ Impossibile applicare l'effetto video, si continua con il video precedente<br>";
                         }
                     }
                     
                     // Applica audio di sottofondo se richiesto
-                    if (!empty($audioCategory)) {
-                        echo "🔊 Aggiunta audio di sottofondo " . ucfirst($audioCategory) . " (non interrompe il parlato)...<br>";
-                        $audio = getRandomAudioFromCategory($audioCategory);
+                    if ($applyBackgroundAudio && $selectedAudioCategory != 'none') {
+                        echo "🎵 Aggiunta audio di sottofondo dalla categoria: " . $selectedAudioCategory . "...<br>";
                         
+                        // Ottieni un audio casuale dalla categoria selezionata
+                        $audio = getRandomAudioFromCategory($selectedAudioCategory);
                         if ($audio) {
-                            // Scarica l'audio se necessario
-                            $audioDir = getConfig('paths.temp', 'temp') . '/audio';
-                            if (!file_exists($audioDir)) {
-                                mkdir($audioDir, 0777, true);
-                            }
+                            echo "🎵 Audio selezionato: " . $audio['name'] . "<br>";
                             
-                            $audioFile = $audioDir . '/' . basename($audio['url']);
-                            if (!file_exists($audioFile)) {
-                                // Debug download
-                                debugLog("Tentativo download audio da " . $audio['url']);
-                                
-                                $downloadSuccess = downloadAudio($audio['url'], $audioFile);
-                                if (!$downloadSuccess) {
-                                    echo "⚠️ Impossibile scaricare l'audio.<br>";
-                                    debugLog("Errore download audio: " . $audio['url'], "error");
-                                    // Usa un audio locale se disponibile
-                                    $localAudio = 'assets/audio/default_background.mp3';
-                                    if (file_exists($localAudio)) {
-                                        $audioFile = $localAudio;
-                                        echo "✅ Utilizzo audio di backup locale<br>";
-                                        debugLog("Uso audio di backup: $localAudio");
-                                    } else {
-                                        $audioFile = null;
-                                        debugLog("Audio backup non disponibile", "error");
-                                    }
-                                } else {
-                                    debugLog("Audio scaricato: $audioFile (" . filesize($audioFile) . " bytes)");
-                                }
-                            }
+                            // Scarica l'audio
+                            $audioFile = getConfig('paths.temp', 'temp') . '/audio_' . $timestamp . '.mp3';
+                            $downloadResult = downloadAudio($audio['url'], $audioFile);
                             
-                            // Applica l'audio al video se disponibile
-                            if ($audioFile && file_exists($audioFile)) {
-                                // Debug file audio
-                                debugLog("Audio file: " . $audioFile . " (" . filesize($audioFile) . " bytes)");
+                            if ($downloadResult && file_exists($audioFile) && filesize($audioFile) > 0) {
+                                // Applica l'audio al video
+                                $audioVideo = getConfig('paths.uploads', 'uploads') . '/audio_' . $timestamp . '.mp4';
+                                $audioResult = applyBackgroundAudio($processedVideo, $audioFile, $audioVideo, $audioVolume);
                                 
-                                // Verifica file video
-                                if (!file_exists($outputFinal) || filesize($outputFinal) <= 0) {
-                                    echo "⚠️ File video non valido per aggiungere audio.<br>";
-                                    debugLog("File video non valido per audio: $outputFinal", "error");
+                                if ($audioResult && file_exists($audioVideo) && filesize($audioVideo) > 0) {
+                                    echo "✅ Audio di sottofondo aggiunto con successo<br>";
+                                    $processedVideo = $audioVideo;
                                 } else {
-                                    debugLog("Video file: " . $outputFinal . " (" . filesize($outputFinal) . " bytes)");
-                                    
-                                    // METODO ALTERNATIVO: Usa un comando FFmpeg diretto per applicare l'audio
-                                    $outputWithAudio = getConfig('paths.uploads', 'uploads') . '/video_audio_' . $timestamp . '.mp4';
-                                    $audioCmd = "ffmpeg -i " . escapeshellarg($outputFinal) . 
-                                                " -stream_loop -1 -i " . escapeshellarg($audioFile) . 
-                                                " -filter_complex \"[1:a]volume=" . $audioVolume . "[music];[0:a][music]amix=inputs=2:duration=first\" " .
-                                                " -c:v copy -c:a aac -b:a 128k -shortest " . 
-                                                escapeshellarg($outputWithAudio) . " -y";
-                                    
-                                    debugLog("Esecuzione comando audio: $audioCmd");
-                                    exec($audioCmd, $audioOutput, $audioReturnCode);
-                                    
-                                    if ($audioReturnCode === 0 && file_exists($outputWithAudio) && filesize($outputWithAudio) > 0) {
-                                        // Se l'audio è stato applicato con successo, usa il nuovo file
-                                        unlink($outputFinal); // Rimuovi il file senza audio
-                                        $outputFinal = $outputWithAudio;
-                                        echo "✅ Audio aggiunto: " . $audio['name'] . " (ottimizzato per non coprire il parlato)<br>";
-                                        debugLog("Audio aggiunto con successo: $outputWithAudio (" . filesize($outputWithAudio) . " bytes)");
-                                    } else {
-                                        echo "⚠️ Non è stato possibile aggiungere l'audio con il comando diretto, provo metodo alternativo.<br>";
-                                        debugLog("Comando audio fallito, codice: $audioReturnCode", "error");
-                                        
-                                        // Prova con la funzione originale come fallback
-                                        if (applyBackgroundAudio($outputFinal, $audioFile, $outputWithAudio, $audioVolume)) {
-                                            // Verifica che il file esista e abbia dimensioni
-                                            if (file_exists($outputWithAudio) && filesize($outputWithAudio) > 0) {
-                                                // Se l'audio è stato applicato con successo, usa il nuovo file
-                                                unlink($outputFinal); // Rimuovi il file senza audio
-                                                $outputFinal = $outputWithAudio;
-                                                echo "✅ Audio aggiunto: " . $audio['name'] . " (metodo alternativo)<br>";
-                                                debugLog("Audio aggiunto con metodo alternativo: $outputWithAudio");
-                                            } else {
-                                                echo "⚠️ File con audio danneggiato, si utilizza l'originale<br>";
-                                                debugLog("File audio danneggiato: $outputWithAudio", "error");
-                                            }
-                                        } else {
-                                            echo "⚠️ Non è stato possibile aggiungere l'audio.<br>";
-                                            debugLog("Fallimento aggiunta audio", "error");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Aggiungi privacy dei volti se richiesta
-                    if ($applyFacePrivacy) {
-                        // Verifica se OpenCV è disponibile
-                        $opencvAvailable = isOpenCVAvailable();
-                        
-                        if ($opencvAvailable) {
-                            echo "😊 Applicazione emoji sorridenti sui volti per privacy...<br>";
-                            $outputWithFacePrivacy = getConfig('paths.uploads', 'uploads') . '/video_privacy_' . $timestamp . '.mp4';
-                            
-                            if (file_exists($outputFinal) && filesize($outputFinal) > 0) {
-                                debugLog("Applying face privacy to " . $outputFinal . " (" . filesize($outputFinal) . " bytes)");
-                                
-                                if (applyFacePrivacy($outputFinal, $outputWithFacePrivacy, $excludeYellowVests)) {
-                                    if (file_exists($outputWithFacePrivacy) && filesize($outputWithFacePrivacy) > 0) {
-                                        unlink($outputFinal); // Rimuovi il file senza privacy
-                                        $outputFinal = $outputWithFacePrivacy;
-                                        echo "✅ Privacy dei volti applicata";
-                                        if ($excludeYellowVests) {
-                                            echo " (escluse persone con pettorine gialle)";
-                                        }
-                                        echo "<br>";
-                                        debugLog("Privacy volti applicata: $outputWithFacePrivacy (" . filesize($outputWithFacePrivacy) . " bytes)");
-                                    } else {
-                                        echo "⚠️ File con privacy volti danneggiato, si utilizza l'originale<br>";
-                                        debugLog("File privacy danneggiato: $outputWithFacePrivacy", "error");
-                                    }
-                                } else {
-                                    echo "⚠️ Non è stato possibile applicare la privacy dei volti.<br>";
-                                    debugLog("Fallimento applicazione privacy volti", "error");
+                                    echo "⚠️ Impossibile aggiungere l'audio, si continua con il video precedente<br>";
                                 }
                             } else {
-                                echo "⚠️ File video non valido per applicare privacy volti.<br>";
-                                debugLog("File video non valido per privacy: $outputFinal", "error");
+                                echo "⚠️ Impossibile scaricare l'audio, si continua con il video senza audio<br>";
                             }
                         } else {
-                            echo "⚠️ OpenCV non disponibile per la privacy dei volti.<br>";
-                            echo "Per utilizzare questa funzione, installa OpenCV per Python:<br>";
-                            echo "<code>pip install opencv-python</code><br>";
-                            debugLog("OpenCV non disponibile", "error");
+                            echo "⚠️ Nessun audio disponibile nella categoria selezionata<br>";
                         }
                     }
                     
-                    // FINE SEZIONE DA VERIFICARE
-                    // ===========================================================================
+                    // Il video finale è ora in $processedVideo
+                    $outputFinal = $processedVideo;
                     
-                    // Traccia il file finale
-                    trackFile($outputFinal, 'video_finale.mp4', 'output');
-                    
-                    // Genera una miniatura per il video finale (ottimizzato)
+                    // Genera una miniatura per il video finale
                     $thumbnailPath = getConfig('paths.uploads', 'uploads') . '/thumbnail_' . $timestamp . '.jpg';
                     $thumbnailCmd = "ffmpeg -ss 00:00:03 -i " . escapeshellarg($outputFinal) . " -vframes 1 -q:v 2 " . escapeshellarg($thumbnailPath);
                     shell_exec($thumbnailCmd);
                     
                     echo "<br>🎉 <strong>Montaggio completato in $concatenation_time secondi!</strong><br><br>";
                     
-                    echo "<div style='display echo "<div style='display: flex; align-items: center; gap: 20px;'>";
+                    echo "<div style='display: flex; align-items: center; gap: 20px;'>";
                     if (file_exists($thumbnailPath)) {
                         echo "<img src='$thumbnailPath' style='max-width: 200px; max-height: 120px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);'>";
                     }
@@ -550,13 +365,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                           Scarica il video</a>";
                     echo "</div>";
                     
-                    // Informazioni sulla privacy
-                    echo "<div style='margin-top: 15px; font-size: 14px; color: #666;'>";
-                    echo "🔒 <strong>Informazioni sulla privacy:</strong> I file verranno eliminati automaticamente dopo " . 
-                         getConfig('privacy.retention_hours', 48) . " ore dal caricamento.";
-                    echo "</div>";
-                    
-                    // Informazioni base sul video (ottimizzato)
+                    // Informazioni base sul video
                     $cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 " . escapeshellarg($outputFinal);
                     $videoInfo = shell_exec($cmd);
                     
@@ -577,7 +386,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             } else {
                 echo "<br>⚠️ <strong>Nessun segmento valido</strong> da unire nel video finale.";
-                debugLog("Nessun segmento valido da unire", "error");
             }
             
             // Pulizia dei file temporanei
@@ -588,176 +396,88 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Modalità semplice: concatena tutti i video
             $timestamp = date('Ymd_His');
             $outputFinal = getConfig('paths.uploads', 'uploads') . '/final_video_' . $timestamp . '.mp4';
-            
-            echo "🔄 Creazione del video finale...<br>";
             $concatResult = concatenateTsFiles($uploaded_ts_files, $outputFinal);
             
             if (!$concatResult || !file_exists($outputFinal) || filesize($outputFinal) <= 0) {
-                echo "❌ <strong>Errore nella creazione del video finale.</strong><br>";
-                debugLog("Errore concatenazione modalità semplice: $outputFinal", "error");
+                echo "<br>❌ <strong>Errore nella creazione del video finale.</strong><br>";
             } else {
-                debugLog("Video finale creato (modalità semplice): $outputFinal (" . filesize($outputFinal) . " bytes)");
+                // Percorso per il video con le trasformazioni
+                $processedVideo = $outputFinal;
                 
-                // Applica effetto video se richiesto
-                if (!empty($videoEffect)) {
-                    $effects = getVideoEffects();
-                    if (isset($effects[$videoEffect])) {
-                        echo "🎨 Applicazione effetto " . $effects[$videoEffect]['name'] . "...<br>";
-                        $outputWithEffect = getConfig('paths.uploads', 'uploads') . '/video_effect_' . $timestamp . '.mp4';
-                        
-                        debugLog("Tentativo applicazione effetto: $videoEffect");
-                        if (applyVideoEffect($outputFinal, $outputWithEffect, $videoEffect)) {
-                            // Se l'effetto è stato applicato con successo, usa il nuovo file
-                            if (file_exists($outputWithEffect) && filesize($outputWithEffect) > 0) {
-                                unlink($outputFinal); // Rimuovi il file senza effetto
-                                $outputFinal = $outputWithEffect;
-                                echo "✅ Effetto applicato con successo<br>";
-                                debugLog("Effetto applicato con successo: $outputWithEffect");
-                            } else {
-                                echo "⚠️ Il file con effetto risulta danneggiato, si utilizza l'originale<br>";
-                                debugLog("File effetto danneggiato: $outputWithEffect", "error");
-                            }
-                        } else {
-                            debugLog("Fallimento applicazione effetto", "error");
-                        }
+                // Applica la privacy dei volti se richiesto
+                if ($applyFacePrivacy) {
+                    echo "🎭 Applicazione privacy volti...<br>";
+                    $privacyVideo = getConfig('paths.uploads', 'uploads') . '/privacy_' . $timestamp . '.mp4';
+                    $privacyResult = applyFacePrivacy($processedVideo, $privacyVideo, $excludeYellowVests);
+                    
+                    if ($privacyResult && file_exists($privacyVideo) && filesize($privacyVideo) > 0) {
+                        echo "✅ Privacy volti applicata con successo<br>";
+                        $processedVideo = $privacyVideo;
+                    } else {
+                        echo "⚠️ Impossibile applicare la privacy dei volti, si continua con il video originale<br>";
+                    }
+                }
+                
+                // Applica effetti video se richiesto
+                if ($applyVideoEffect && $selectedEffect != 'none') {
+                    echo "🎨 Applicazione effetto video: " . $selectedEffect . "...<br>";
+                    $effectVideo = getConfig('paths.uploads', 'uploads') . '/effect_' . $timestamp . '.mp4';
+                    $effectResult = applyVideoEffect($processedVideo, $effectVideo, $selectedEffect);
+                    
+                    if ($effectResult && file_exists($effectVideo) && filesize($effectVideo) > 0) {
+                        echo "✅ Effetto video applicato con successo<br>";
+                        $processedVideo = $effectVideo;
+                    } else {
+                        echo "⚠️ Impossibile applicare l'effetto video, si continua con il video precedente<br>";
                     }
                 }
                 
                 // Applica audio di sottofondo se richiesto
-                if (!empty($audioCategory)) {
-                    echo "🔊 Aggiunta audio di sottofondo " . ucfirst($audioCategory) . " (non interrompe il parlato)...<br>";
-                    $audio = getRandomAudioFromCategory($audioCategory);
+                if ($applyBackgroundAudio && $selectedAudioCategory != 'none') {
+                    echo "🎵 Aggiunta audio di sottofondo dalla categoria: " . $selectedAudioCategory . "...<br>";
                     
+                    // Ottieni un audio casuale dalla categoria selezionata
+                    $audio = getRandomAudioFromCategory($selectedAudioCategory);
                     if ($audio) {
-                        // Scarica l'audio se necessario
-                        $audioDir = getConfig('paths.temp', 'temp') . '/audio';
-                        if (!file_exists($audioDir)) {
-                            mkdir($audioDir, 0777, true);
-                        }
+                        echo "🎵 Audio selezionato: " . $audio['name'] . "<br>";
                         
-                        $audioFile = $audioDir . '/' . basename($audio['url']);
-                        if (!file_exists($audioFile)) {
-                            debugLog("Tentativo download audio: " . $audio['url']);
-                            $downloadSuccess = downloadAudio($audio['url'], $audioFile);
-                            if (!$downloadSuccess) {
-                                echo "⚠️ Impossibile scaricare l'audio.<br>";
-                                debugLog("Errore download audio: " . $audio['url'], "error");
-                                // Usa un audio locale se disponibile
-                                $localAudio = 'assets/audio/default_background.mp3';
-                                if (file_exists($localAudio)) {
-                                    $audioFile = $localAudio;
-                                    echo "✅ Utilizzo audio di backup locale<br>";
-                                    debugLog("Uso audio di backup: $localAudio");
-                                } else {
-                                    $audioFile = null;
-                                    debugLog("Audio backup non disponibile", "error");
-                                }
-                            } else {
-                                debugLog("Audio scaricato con successo: $audioFile");
-                            }
-                        }
+                        // Scarica l'audio
+                        $audioFile = getConfig('paths.temp', 'temp') . '/audio_' . $timestamp . '.mp3';
+                        $downloadResult = downloadAudio($audio['url'], $audioFile);
                         
-                        // Applica l'audio al video se disponibile
-                        if ($audioFile && file_exists($audioFile)) {
-                            // METODO ALTERNATIVO: Usa un comando FFmpeg diretto
-                            $outputWithAudio = getConfig('paths.uploads', 'uploads') . '/video_audio_' . $timestamp . '.mp4';
-                            $audioCmd = "ffmpeg -i " . escapeshellarg($outputFinal) . 
-                                        " -stream_loop -1 -i " . escapeshellarg($audioFile) . 
-                                        " -filter_complex \"[1:a]volume=" . $audioVolume . "[music];[0:a][music]amix=inputs=2:duration=first\" " .
-                                        " -c:v copy -c:a aac -b:a 128k -shortest " . 
-                                        escapeshellarg($outputWithAudio) . " -y";
+                        if ($downloadResult && file_exists($audioFile) && filesize($audioFile) > 0) {
+                            // Applica l'audio al video
+                            $audioVideo = getConfig('paths.uploads', 'uploads') . '/audio_' . $timestamp . '.mp4';
+                            $audioResult = applyBackgroundAudio($processedVideo, $audioFile, $audioVideo, $audioVolume);
                             
-                            debugLog("Esecuzione comando audio: $audioCmd");
-                            exec($audioCmd, $audioOutput, $audioReturnCode);
-                            
-                            if ($audioReturnCode === 0 && file_exists($outputWithAudio) && filesize($outputWithAudio) > 0) {
-                                // Se l'audio è stato applicato con successo, usa il nuovo file
-                                unlink($outputFinal); // Rimuovi il file senza audio
-                                $outputFinal = $outputWithAudio;
-                                echo "✅ Audio aggiunto: " . $audio['name'] . " (ottimizzato per non coprire il parlato)<br>";
-                                debugLog("Audio aggiunto con successo: $outputWithAudio");
+                            if ($audioResult && file_exists($audioVideo) && filesize($audioVideo) > 0) {
+                                echo "✅ Audio di sottofondo aggiunto con successo<br>";
+                                $processedVideo = $audioVideo;
                             } else {
-                                echo "⚠️ Non è stato possibile aggiungere l'audio con il comando diretto, provo metodo alternativo.<br>";
-                                debugLog("Fallimento comando audio, provo metodo alternativo", "error");
-                                
-                                // Prova con la funzione originale come fallback
-                                if (applyBackgroundAudio($outputFinal, $audioFile, $outputWithAudio, $audioVolume)) {
-                                    // Verifica che il file esista e abbia dimensioni
-                                    if (file_exists($outputWithAudio) && filesize($outputWithAudio) > 0) {
-                                        // Se l'audio è stato applicato con successo, usa il nuovo file
-                                        unlink($outputFinal); // Rimuovi il file senza audio
-                                        $outputFinal = $outputWithAudio;
-                                        echo "✅ Audio aggiunto: " . $audio['name'] . " (metodo alternativo)<br>";
-                                        debugLog("Audio aggiunto con metodo alternativo: $outputWithAudio");
-                                    } else {
-                                        echo "⚠️ File con audio danneggiato, si utilizza l'originale<br>";
-                                        debugLog("File audio danneggiato: $outputWithAudio", "error");
-                                    }
-                                } else {
-                                    echo "⚠️ Non è stato possibile aggiungere l'audio.<br>";
-                                    debugLog("Fallimento aggiunta audio", "error");
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Aggiungi privacy dei volti se richiesta
-                if ($applyFacePrivacy) {
-                    // Verifica se OpenCV è disponibile
-                    $opencvAvailable = isOpenCVAvailable();
-                    
-                    if ($opencvAvailable) {
-                        echo "😊 Applicazione emoji sorridenti sui volti per privacy...<br>";
-                        $outputWithFacePrivacy = getConfig('paths.uploads', 'uploads') . '/video_privacy_' . $timestamp . '.mp4';
-                        
-                        if (file_exists($outputFinal) && filesize($outputFinal) > 0) {
-                            debugLog("Applicazione privacy volti: $outputFinal");
-                            
-                            if (applyFacePrivacy($outputFinal, $outputWithFacePrivacy, $excludeYellowVests)) {
-                                if (file_exists($outputWithFacePrivacy) && filesize($outputWithFacePrivacy) > 0) {
-                                    unlink($outputFinal); // Rimuovi il file senza privacy
-                                    $outputFinal = $outputWithFacePrivacy;
-                                    echo "✅ Privacy dei volti applicata";
-                                    if ($excludeYellowVests) {
-                                        echo " (escluse persone con pettorine gialle)";
-                                    }
-                                    echo "<br>";
-                                    debugLog("Privacy volti applicata con successo: $outputWithFacePrivacy");
-                                } else {
-                                    echo "⚠️ File con privacy volti danneggiato, si utilizza l'originale<br>";
-                                    debugLog("File privacy danneggiato: $outputWithFacePrivacy", "error");
-                                }
-                            } else {
-                                echo "⚠️ Non è stato possibile applicare la privacy dei volti.<br>";
-                                debugLog("Fallimento applicazione privacy volti", "error");
+                                echo "⚠️ Impossibile aggiungere l'audio, si continua con il video precedente<br>";
                             }
                         } else {
-                            echo "⚠️ File video non valido per applicare privacy volti.<br>";
-                            debugLog("File video non valido per privacy: $outputFinal", "error");
+                            echo "⚠️ Impossibile scaricare l'audio, si continua con il video senza audio<br>";
                         }
                     } else {
-                        echo "⚠️ OpenCV non disponibile per la privacy dei volti.<br>";
-                        echo "Per utilizzare questa funzione, installa OpenCV per Python:<br>";
-                        echo "<code>pip install opencv-python</code><br>";
-                        debugLog("OpenCV non disponibile", "error");
+                        echo "⚠️ Nessun audio disponibile nella categoria selezionata<br>";
                     }
                 }
-
-                // Mostra il link al video finale
-                echo "<br>🎉 <strong>Montaggio completato!</strong>";
                 
-                echo "<div style='display: flex; align-items: center; gap: 20px; margin-top: 15px;'>";
+                // Il video finale è ora in $processedVideo
+                $outputFinal = $processedVideo;
                 
-                // Genera una miniatura per il video finale
+                // Genera una miniatura
                 $thumbnailPath = getConfig('paths.uploads', 'uploads') . '/thumbnail_' . $timestamp . '.jpg';
                 $thumbnailCmd = "ffmpeg -ss 00:00:03 -i " . escapeshellarg($outputFinal) . " -vframes 1 -q:v 2 " . escapeshellarg($thumbnailPath);
                 shell_exec($thumbnailCmd);
                 
+                echo "<br>🎉 <strong>Montaggio completato!</strong><br><br>";
+                
+                echo "<div style='display: flex; align-items: center; gap: 20px;'>";
                 if (file_exists($thumbnailPath)) {
                     echo "<img src='$thumbnailPath' style='max-width: 200px; max-height: 120px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);'>";
                 }
-                
                 echo "<a href='$outputFinal' download style='display: inline-block; background: #4CAF50; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; font-weight: bold;'>
                       <svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='currentColor' style='vertical-align: text-bottom; margin-right: 5px;' viewBox='0 0 16 16'>
                         <path d='M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z'/>
@@ -852,7 +572,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             margin: 8px 0;
             cursor: pointer;
         }
-        label input[type="radio"], 
+        label input[type="radio"],
         label input[type="checkbox"] {
             margin-right: 8px;
         }
@@ -883,91 +603,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         .duration-controls select {
             max-width: 150px;
         }
-        .privacy-info {
-            background: #e8f4fd;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 30px;
-            font-size: 0.9em;
+        details {
+            margin: 10px 0;
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        summary {
+            cursor: pointer;
+            font-weight: bold;
+            color: #2c3e50;
         }
         .range-slider {
             width: 100%;
             max-width: 200px;
         }
-        .debug-info {
-            margin-top: 20px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            font-size: 0.85em;
-            color: #666;
-            display: none;
-        }
-        .show-debug {
-            margin-top: 20px;
-            font-size: 0.85em;
-            color: #666;
-            background: none;
-            border: none;
-            text-decoration: underline;
-            cursor: pointer;
-            padding: 0;
+        .feature-toggle {
+            margin-bottom: 8px;
         }
     </style>
-    <script>
-        // Mostra/nascondi le opzioni di adattamento della durata
-        document.addEventListener('DOMContentLoaded', function() {
-            const durationSelect = document.querySelector('select[name="duration"]');
-            const durationMethodOptions = document.getElementById('durationMethodOptions');
-            
-            // Funzione per mostrare/nascondere le opzioni in base alla selezione
-            function toggleDurationOptions() {
-                if (durationSelect.value === '0') {
-                    durationMethodOptions.style.display = 'none';
-                } else {
-                    durationMethodOptions.style.display = 'block';
-                }
-            }
-            
-            // Inizializza lo stato al caricamento
-            if (durationSelect) {
-                toggleDurationOptions();
-                
-                // Aggiungi event listener per cambi futuri
-                durationSelect.addEventListener('change', toggleDurationOptions);
-            }
-            
-            // Visualizza il valore dello slider del volume
-            const volumeSlider = document.querySelector('input[name="audio_volume"]');
-            const volumeValue = document.getElementById('volume-value');
-            
-            if (volumeSlider && volumeValue) {
-                // Mostra il valore iniziale
-                volumeValue.textContent = volumeSlider.value;
-                
-                // Aggiorna quando cambia
-                volumeSlider.addEventListener('input', function() {
-                    volumeValue.textContent = this.value;
-                });
-            }
-            
-            // Toggle debug info
-            const debugBtn = document.getElementById('show-debug-btn');
-            const debugInfo = document.getElementById('debug-info');
-            
-            if (debugBtn && debugInfo) {
-                debugBtn.addEventListener('click', function() {
-                    if (debugInfo.style.display === 'none' || !debugInfo.style.display) {
-                        debugInfo.style.display = 'block';
-                        debugBtn.textContent = 'Nascondi informazioni di debug';
-                    } else {
-                        debugInfo.style.display = 'none';
-                        debugBtn.textContent = 'Mostra informazioni di debug';
-                    }
-                });
-            }
-        });
-    </script>
 </head>
 <body>
     <h1>🎬 VideoAssembly - Montaggio Video Automatico</h1>
@@ -986,14 +640,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     </label>
                     <label>
                         <input type="radio" name="mode" value="detect_people"> 
-                        Rilevamento persone (estrae scene con persone in movimento)
+                        Rilevamento persone (estrae solo parti con persone in movimento)
                     </label>
                 </div>
                 
                 <div class="option-group">
                     <h3>Durata del video finale:</h3>
                     <div class="duration-controls">
-                        <select name="duration">
+                        <select name="duration" id="durationSelect">
                             <option value="0">Durata originale</option>
                             <option value="1">1 minuto</option>
                             <option value="3">3 minuti</option>
@@ -1008,67 +662,93 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         <h4>Metodo di adattamento:</h4>
                         <label>
                             <input type="radio" name="duration_method" value="select_interactions" checked> 
-                            Interazioni tra persone (priorità a scene con più persone)
+                            Interazioni tra persone (seleziona scene con più persone che interagiscono)
                         </label>
                         <label>
                             <input type="radio" name="duration_method" value="select"> 
-                            Selezione migliori (scene più importanti)
+                            Selezione migliori (sceglie solo le scene più importanti)
                         </label>
                         <label>
                             <input type="radio" name="duration_method" value="trim"> 
-                            Taglio proporzionale (tutte le scene, ridotte)
+                            Taglio proporzionale (mantiene tutte le scene, riduce la loro durata)
                         </label>
                         <label>
                             <input type="radio" name="duration_method" value="speed"> 
-                            Modifica velocità (accelera il video)
+                            Modifica velocità (accelera il video per mantenere tutte le scene)
                         </label>
                     </div>
                 </div>
                 
+                <!-- Nuove opzioni per privacy dei volti -->
                 <div class="option-group">
-                    <h3>Audio di sottofondo:</h3>
-                    <select name="audio_category">
-                        <option value="">Nessun audio</option>
-                        <option value="emozionale">Emozionale</option>
-                        <option value="bambini">Bambini</option>
-                        <option value="azione">Azione</option>
-                        <option value="relax">Relax</option>
-                        <option value="divertimento">Divertimento</option>
-                        <option value="vacanze">Vacanze</option>
-                    </select>
-                    
-                    <div style="margin-top: 10px;">
-                        <label for="audio_volume">Volume: <span id="volume-value">0.3</span></label>
-                        <input type="range" name="audio_volume" min="0.1" max="0.7" step="0.1" value="0.3" class="range-slider">
+                    <h3>Privacy e protezione:</h3>
+                    <div class="feature-toggle">
+                        <label>
+                            <input type="checkbox" name="apply_face_privacy" value="1"> 
+                            Applica emoji sui volti (protezione privacy)
+                        </label>
+                    </div>
+                    <div id="privacyOptions" style="margin-left: 20px; margin-top: 5px; display: none;">
+                        <label>
+                            <input type="checkbox" name="exclude_yellow_vests" value="1" checked> 
+                            Escludi operatori con pettorine gialle
+                        </label>
                     </div>
                 </div>
                 
+                <!-- Nuove opzioni per effetti video -->
                 <div class="option-group">
-                    <h3>Effetto video:</h3>
-                    <select name="video_effect">
-                        <option value="">Nessun effetto</option>
-                        <option value="vintage">Vintage/Retrò</option>
-                        <option value="bianco_nero">Bianco e Nero</option>
-                        <option value="caldo">Toni Caldi</option>
-                        <option value="freddo">Toni Freddi</option>
-                        <option value="dream">Effetto Sogno</option>
-                        <option value="cinema">Cinema</option>
-                        <option value="hdr">Effetto HDR</option>
-                        <option value="brillante">Colori Brillanti</option>
-                        <option value="instagram">Instagram Style</option>
-                    </select>
+                    <h3>Effetti video:</h3>
+                    <div class="feature-toggle">
+                        <label>
+                            <input type="checkbox" name="apply_effect" value="1"> 
+                            Applica un effetto al video
+                        </label>
+                    </div>
+                    <div id="effectOptions" style="margin-left: 20px; margin-top: 5px; display: none;">
+                        <select name="video_effect" id="videoEffectSelect">
+                            <option value="none">Nessun effetto</option>
+                            <option value="vintage">Effetto Vintage/Retrò</option>
+                            <option value="bianco_nero">Bianco e Nero</option>
+                            <option value="caldo">Toni Caldi</option>
+                            <option value="freddo">Toni Freddi</option>
+                            <option value="dream">Effetto Sogno</option>
+                            <option value="cinema">Cinema</option>
+                            <option value="hdr">Effetto HDR</option>
+                            <option value="brillante">Colori Brillanti</option>
+                            <option value="instagram">Instagram Style</option>
+                        </select>
+                    </div>
                 </div>
                 
+                <!-- Nuove opzioni per audio di sottofondo -->
                 <div class="option-group">
-                    <h3>Privacy dei volti:</h3>
-                    <label>
-                        <input type="checkbox" name="apply_face_privacy" value="1"> 
-                        Applica emoji sorridenti sui volti
-                    </label>
-                    <label>
-                        <input type="checkbox" name="exclude_yellow_vests" value="1" checked> 
-                        Escludi persone con pettorine gialle
-                    </label>
+                    <h3>Audio di sottofondo:</h3>
+                    <div class="feature-toggle">
+                        <label>
+                            <input type="checkbox" name="apply_audio" value="1"> 
+                            Aggiungi musica di sottofondo
+                        </label>
+                    </div>
+                    <div id="audioOptions" style="margin-left: 20px; margin-top: 5px; display: none;">
+                        <div style="margin-bottom: 10px;">
+                            <label for="audioCategorySelect">Categoria musicale:</label>
+                            <select name="audio_category" id="audioCategorySelect">
+                                <option value="none">Nessuna musica</option>
+                                <option value="emozionale">Emozionale</option>
+                                <option value="bambini">Bambini</option>
+                                <option value="azione">Azione/Epic</option>
+                                <option value="relax">Rilassante</option>
+                                <option value="divertimento">Divertente</option>
+                                <option value="vacanze">Vacanze/Travel</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="audioVolumeRange">Volume musica:</label>
+                            <input type="range" id="audioVolumeRange" name="audio_volume" min="10" max="70" value="30" class="range-slider">
+                            <span id="audioVolumeValue">30%</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             
@@ -1080,127 +760,75 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <h3>📋 Istruzioni</h3>
         <ol>
             <li><strong>Carica i tuoi video</strong> - Seleziona uno o più file video dal tuo dispositivo</li>
-            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento di scene con persone</li>
+            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento automatico di scene interessanti</li>
             <li><strong>Imposta la durata</strong> - Scegli quanto dovrà durare il video finale (opzionale)</li>
-            <li><strong>Personalizza l'audio</strong> - Aggiungi un sottofondo musicale che non interrompe il parlato</li>
-            <li><strong>Scegli un effetto</strong> - Applica filtri visivi per migliorare l'aspetto</li>
-            <li><strong>Privacy dei volti</strong> - Aggiungi emoji sorridenti sui volti per proteggere la privacy</li>
+            <li><strong>Personalizza il video</strong> - Aggiungi effetti, audio o privacy per i volti</li>
             <li><strong>Avvia il montaggio</strong> - Clicca su "Carica e Monta" e attendi il completamento</li>
             <li><strong>Scarica il risultato</strong> - Una volta completato, scarica il video finale</li>
         </ol>
-        <p><em>Nota: Il rilevamento di persone darà priorità alle scene con più persone insieme, ideale per momenti di interazione.</em></p>
+        <p><em>Nota: L'elaborazione è ottimizzata per la velocità. Per risultati ancora migliori con video più lunghi, considera di caricare video più brevi o di limitare la durata finale.</em></p>
     </div>
-    
-    <div class="privacy-info">
-        <?php echo getPrivacyPolicyHtml(); ?>
-    </div>
-    
-    <!-- Debug button -->
-    <button id="show-debug-btn" class="show-debug">Mostra informazioni di debug</button>
-    
-    <!-- Debug info section -->
-    <div id="debug-info" class="debug-info">
-        <h3>Informazioni di Debug</h3>
-        <p>Versione sistema: 1.2.0 (Ottimizzato)</p>
-        <?php 
-        $deps = checkDependencies();
-        echo "<p>FFmpeg: " . ($deps['ffmpeg'] ? "✅ Disponibile" : "❌ Non disponibile") . "</p>";
-        
-        $logDir = 'logs';
-        if (file_exists($logDir)) {
-            $logFiles = glob("$logDir/debug_*.log");
-            if (!empty($logFiles)) {
-                $latestLog = end($logFiles);
-                echo "<p>Ultimo log: " . basename($latestLog) . "</p>";
-                
-                if (file_exists($latestLog)) {
-                    $logContent = file_get_contents($latestLog);
-                    $logLines = array_slice(explode("\n", $logContent), -15); // Mo
-                $logContent = file_get_contents($latestLog);
-                    $logLines = array_slice(explode("\n", $logContent), -15); // Mostra ultime 15 righe
-                    echo "<pre style='background: #f5f5f5; padding: 10px; border-radius: 4px; max-height: 200px; overflow-y: auto; font-size: 12px;'>";
-                    foreach ($logLines as $line) {
-                        echo htmlspecialchars($line) . "\n";
-                    }
-                    echo "</pre>";
-                }
-            }
-        }
-        
-        // Check for OpenCV
-        echo "<p>OpenCV (per privacy volti): " . (isOpenCVAvailable() ? "✅ Disponibile" : "❌ Non disponibile") . "</p>";
-        
-        // Temp directory status
-        $tempDir = getConfig('paths.temp', 'temp');
-        $tempFiles = 0;
-        $tempSize = 0;
-        if (file_exists($tempDir)) {
-            $tempIterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($tempDir, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::CHILD_FIRST
-            );
+
+    <script>
+        // Questa parte è spostata alla fine del body per assicurarsi che gli elementi DOM siano caricati
+        document.addEventListener('DOMContentLoaded', function() {
+            // Gestione opzioni durata
+            const durationSelect = document.getElementById('durationSelect');
+            const durationMethodOptions = document.getElementById('durationMethodOptions');
             
-            foreach ($tempIterator as $file) {
-                if (!$file->isDir()) {
-                    $tempFiles++;
-                    $tempSize += $file->getSize();
+            function toggleDurationOptions() {
+                if (durationSelect.value === '0') {
+                    durationMethodOptions.style.display = 'none';
+                } else {
+                    durationMethodOptions.style.display = 'block';
                 }
             }
-        }
-        echo "<p>File temporanei: $tempFiles (" . round($tempSize / (1024*1024), 2) . " MB)</p>";
-        
-        // Output directory status
-        $outputDir = getConfig('paths.uploads', 'uploads');
-        $outputFiles = 0;
-        $outputSize = 0;
-        if (file_exists($outputDir)) {
-            $outputIterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($outputDir, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::CHILD_FIRST
-            );
             
-            foreach ($outputIterator as $file) {
-                if (!$file->isDir()) {
-                    $outputFiles++;
-                    $outputSize += $file->getSize();
-                }
+            // Inizializza lo stato al caricamento
+            toggleDurationOptions();
+            durationSelect.addEventListener('change', toggleDurationOptions);
+            
+            // Gestione opzioni privacy volti
+            const applyFacePrivacy = document.querySelector('input[name="apply_face_privacy"]');
+            const privacyOptions = document.getElementById('privacyOptions');
+            
+            function togglePrivacyOptions() {
+                privacyOptions.style.display = applyFacePrivacy.checked ? 'block' : 'none';
             }
-        }
-        echo "<p>File di output: $outputFiles (" . round($outputSize / (1024*1024), 2) . " MB)</p>";
-        ?>
-        
-        <h4>Diagnostica FFmpeg</h4>
-        <?php
-        // Esegui un test base di FFmpeg
-        $testCmd = "ffmpeg -version";
-        exec($testCmd, $testOutput, $testReturnCode);
-        echo "<p>Test FFmpeg: " . ($testReturnCode === 0 ? "✅ Successo" : "❌ Fallito") . "</p>";
-        if ($testReturnCode === 0) {
-            echo "<p>Versione FFmpeg: " . htmlspecialchars($testOutput[0]) . "</p>";
-        }
-        
-        // Verifica i codec disponibili
-        $codecCmd = "ffmpeg -codecs | grep -E 'libx264|aac'";
-        exec($codecCmd, $codecOutput, $codecReturnCode);
-        echo "<p>Codec richiesti: " . ($codecReturnCode === 0 && !empty($codecOutput) ? "✅ Disponibili" : "⚠️ Verifica necessaria") . "</p>";
-        
-        // Verifica i filtri disponibili
-        $filterCmd = "ffmpeg -filters | grep -E 'volume|amix|fade'";
-        exec($filterCmd, $filterOutput, $filterReturnCode);
-        echo "<p>Filtri richiesti: " . ($filterReturnCode === 0 && !empty($filterOutput) ? "✅ Disponibili" : "⚠️ Verifica necessaria") . "</p>";
-        ?>
-        
-        <h4>Test Risoluzione Problemi</h4>
-        <p>Se hai problemi con l'aggiunta di audio o effetti, prova questi comandi:</p>
-        <ul>
-            <li>Verifica installazione FFmpeg: <code>ffmpeg -version</code></li>
-            <li>Verifica supporto libx264: <code>ffmpeg -codecs | grep libx264</code></li>
-            <li>Verifica supporto AAC: <code>ffmpeg -codecs | grep aac</code></li>
-            <li>Per problemi audio: <code>ffmpeg -i video.mp4 -stream_loop -1 -i audio.mp3 -filter_complex "[1:a]volume=0.3[music];[0:a][music]amix=inputs=2:duration=first" -c:v copy -c:a aac -b:a 128k -shortest output.mp4</code></li>
-            <li>Per problemi effetti: <code>ffmpeg -i video.mp4 -vf "colorbalance=rs=0.1:gs=0.05:bs=-0.1" -c:v libx264 -preset ultrafast -crf 28 -c:a copy output.mp4</code></li>
-        </ul>
-        
-        <a href="diagnostica.php" target="_blank" style="display: inline-block; background: #2196F3; color: white; padding: 5px 10px; border-radius: 4px; text-decoration: none; margin-top: 10px; font-size: 14px;">Esegui diagnostica completa</a>
-    </div>
+            
+            togglePrivacyOptions();
+            applyFacePrivacy.addEventListener('change', togglePrivacyOptions);
+            
+            // Gestione opzioni effetti video
+            const applyEffect = document.querySelector('input[name="apply_effect"]');
+            const effectOptions = document.getElementById('effectOptions');
+            
+            function toggleEffectOptions() {
+                effectOptions.style.display = applyEffect.checked ? 'block' : 'none';
+            }
+            
+            toggleEffectOptions();
+            applyEffect.addEventListener('change', toggleEffectOptions);
+            
+            // Gestione opzioni audio di sottofondo
+            const applyAudio = document.querySelector('input[name="apply_audio"]');
+            const audioOptions = document.getElementById('audioOptions');
+            const audioVolumeRange = document.getElementById('audioVolumeRange');
+            const audioVolumeValue = document.getElementById('audioVolumeValue');
+            
+            function toggleAudioOptions() {
+                audioOptions.style.display = applyAudio.checked ? 'block' : 'none';
+            }
+            
+            function updateAudioVolumeValue() {
+                audioVolumeValue.textContent = audioVolumeRange.value + '%';
+            }
+            
+            toggleAudioOptions();
+            updateAudioVolumeValue();
+            applyAudio.addEventListener('change', toggleAudioOptions);
+            audioVolumeRange.addEventListener('input', updateAudioVolumeValue);
+        });
+    </script>
 </body>
 </html>
