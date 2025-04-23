@@ -1,18 +1,8 @@
 <?php
 require_once 'config.php';
 require_once 'video_processor.php';
+require_once 'debug_utility.php';
 
-// Funzione di logging
-function debugLog($message, $level = "info") {
-    if (ENABLE_DEBUG) {
-        $logFile = LOG_DIR . '/app_' . date('Y-m-d') . '.log';
-        if (!file_exists(LOG_DIR)) mkdir(LOG_DIR, 0777, true);
-        $logMessage = "[" . date('Y-m-d H:i:s') . "] [$level] $message\n";
-        file_put_contents($logFile, $logMessage, FILE_APPEND);
-    }
-}
-
-// Gestione della richiesta POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['video'])) {
     $file = $_FILES['video']['tmp_name'];
     $originalName = basename($_FILES['video']['name']);
@@ -32,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['video'])) {
     $result = process_uploaded_video($destPath, $options);
 
     echo "<h2>Video Elaborato</h2>";
-    echo "<p><a href='\$result'>Scarica il video</a></p>";
+    echo "<p><a href='{$result['output_file']}'>Scarica il video</a></p>";
     exit;
 }
 ?>
