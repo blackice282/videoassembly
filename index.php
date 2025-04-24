@@ -4,6 +4,9 @@ require_once 'ffmpeg_script.php';
 require_once 'people_detection.php';
 require_once 'transitions.php';
 require_once 'duration_editor.php';
+require_once 'video_effects.php';
+require_once 'audio_manager.php';
+require_once 'face_detection.php';
 
 function createUploadsDir() {
     if (!file_exists(getConfig('paths.uploads', 'uploads'))) {
@@ -14,18 +17,69 @@ function createUploadsDir() {
     }
 }
 
+function generateOutputName() {
+    return 'render_' . date('Ymd_His') . '.mp4';
+}
+
+function processVideoChain($videos, $options) {
+    $processedVideos = [];
+
+    foreach ($videos as $index => $video) {
+        $working = $video;
+
+        if ($options['mode'] === 'detect_people') {
+            $working = applyPeopleDetection($working);
+        }
+
+        if ($options['duration'] > 0) {
+            $working = applyDurationEdit($working, $options['duration'], $options['duration_method']);
+        }
+
+        if ($options['effect'] !== 'none') {
+            $tmp = getConfig('paths.temp') . "/effect_" . basename($working);
+            if (applyVideoEffect($working, $tmp, $options['effect'])) {
+                $working = $tmp;
+            }
+        }
+
+        if ($options['privacy']) {
+            $tmp = getConfig('paths.temp') . "/privacy_" . basename($working);
+            if (applyFacePrivacy($working, $tmp)) {
+                $working = $tmp;
+            }
+        }
+
+        $processedVideos[] = $working;
+    }
+
+    $final = getConfig('paths.uploads', 'uploads') . "/" . generateOutputName();
+    applyTransitions($processedVideos, $final);
+
+    if ($options['audio'] !== 'none') {
+        $audio = getRandomAudioFromCategory($options['audio']);
+        $temp = str_replace('.mp4', '_audio.mp4', $final);
+        if ($audio && downloadAudio($audio['url'], $tmpAudio = getConfig('paths.temp') . '/track.mp3')) {
+            if (applyBackgroundAudio($final, $tmpAudio, $temp, 0.3)) {
+                rename($temp, $final);
+            }
+        }
+    }
+
+    return $final;
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES["videos"])) {
     createUploadsDir();
     set_time_limit(600);
 
-    $mode = $_POST['mode'] ?? 'simple';
-    $targetDuration = isset($_POST['duration']) ? intval($_POST['duration']) * 60 : 0;
-    $durationMethod = $_POST['duration_method'] ?? 'trim';
-    setConfig('duration_editor.method', $durationMethod);
-
-    $effect = $_POST['effect'] ?? 'none';
-    $audio = $_POST['audio'] ?? 'none';
-    $privacy = isset($_POST['privacy']);
+    $options = [
+        'mode' => $_POST['mode'] ?? 'simple',
+        'duration' => isset($_POST['duration']) ? intval($_POST['duration']) * 60 : 0,
+        'duration_method' => $_POST['duration_method'] ?? 'trim',
+        'effect' => $_POST['effect'] ?? 'none',
+        'audio' => $_POST['audio'] ?? 'none',
+        'privacy' => isset($_POST['privacy']),
+    ];
 
     $uploaded = $_FILES["videos"];
     $uploadedCount = count($uploaded["name"]);
@@ -41,91 +95,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES["videos"])) {
         }
     }
 
-    echo "<h2>Video caricati:</h2><ul>";
-    foreach ($tempVideos as $video) {
-        echo "<li>$video</li>";
-    }
-    echo "</ul><p><strong>Elaborazione non ancora implementata.</strong></p>";
+    $result = processVideoChain($tempVideos, $options);
+
+    echo "<h2>Video Elaborato:</h2><p><a href='$result'>Scarica il video</a></p>";
 }
 ?>
-
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <title>VideoAssembly</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            padding: 2rem;
-            background: #f4f4f4;
-        }
-        form {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,.1);
-            max-width: 600px;
-        }
-        label {
-            display: block;
-            margin: 1rem 0 0.5rem;
-        }
-        input, select {
-            width: 100%;
-            padding: 0.5rem;
-        }
-        button {
-            margin-top: 1rem;
-            padding: 0.7rem 1.2rem;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-        button:hover {
-            background: #0056b3;
-        }
-    </style>
-</head>
-<body>
-    <h1>VideoAssembly – Upload multipli</h1>
-    <form method="post" enctype="multipart/form-data">
-        <label>Carica uno o più video:
-            <input type="file" name="videos[]" accept="video/*" multiple required>
-        </label>
-        <label>Modalità:
-            <select name="mode">
-                <option value="simple">Semplice</option>
-                <option value="detect_people">Rileva persone</option>
-            </select>
-        </label>
-        <label>Durata massima (in minuti):
-            <input type="number" name="duration" value="3">
-        </label>
-        <label>Metodo durata:
-            <select name="duration_method">
-                <option value="trim">Taglia</option>
-                <option value="speed">Accelera</option>
-            </select>
-        </label>
-        <label>Effetto video:
-            <select name="effect">
-                <option value="none">Nessuno</option>
-                <option value="bw">Bianco e nero</option>
-                <option value="vintage">Vintage</option>
-                <option value="contrast">Contrasto</option>
-            </select>
-        </label>
-        <label>Audio di sottofondo:
-            <select name="audio">
-                <option value="none">Nessuno</option>
-                <option value="emozionale">Emozionale</option>
-            </select>
-        </label>
-        <label><input type="checkbox" name="privacy" checked> Applica emoji privacy (volti)</label>
-        <button type="submit">Carica e elabora</button>
-    </form>
-</body>
-</html>
