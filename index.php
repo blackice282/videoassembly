@@ -1,32 +1,51 @@
 <?php
 require_once 'config.php';
-require_once 'video_processor.php';
-require_once 'debug_utility.php';
+require_once 'ffmpeg_script.php';
+require_once 'people_detection.php';
+require_once 'transitions.php';
+require_once 'duration_editor.php';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['video'])) {
-    $file = $_FILES['video']['tmp_name'];
-    $originalName = basename($_FILES['video']['name']);
-    $destPath = UPLOAD_DIR . $originalName;
+function createUploadsDir() {
+    if (!file_exists(getConfig('paths.uploads', 'uploads'))) {
+        mkdir(getConfig('paths.uploads', 'uploads'), 0777, true);
+    }
+    if (!file_exists(getConfig('paths.temp', 'temp'))) {
+        mkdir(getConfig('paths.temp', 'temp'), 0777, true);
+    }
+}
 
-    if (!file_exists(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0777, true);
-    move_uploaded_file($file, $destPath);
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES["videos"])) {
+    createUploadsDir();
+    set_time_limit(600);
 
-    $options = [
-        'apply_face_privacy' => isset($_POST['privacy']),
-        'people_detection' => isset($_POST['people']),
-        'max_duration' => intval($_POST['max_duration'] ?? MAX_DURATION),
-        'apply_effect' => $_POST['effect'] !== 'none',
-        'effect_name' => $_POST['effect'],
-        'apply_audio' => $_POST['audio'] !== 'none',
-        'audio_category' => $_POST['audio'],
-        'audio_volume' => 0.3,
-    ];
+    $mode = $_POST['mode'] ?? 'simple';
+    $targetDuration = isset($_POST['duration']) ? intval($_POST['duration']) * 60 : 0;
+    $durationMethod = $_POST['duration_method'] ?? 'trim';
+    setConfig('duration_editor.method', $durationMethod);
 
-    $result = process_uploaded_video($destPath, $options);
+    $effect = $_POST['effect'] ?? 'none';
+    $audio = $_POST['audio'] ?? 'none';
+    $privacy = isset($_POST['privacy']);
 
-    echo "<h2>Video Elaborato</h2>";
-    echo "<p><a href='{$result['output_file']}'>Scarica il video</a></p>";
-    exit;
+    $uploaded = $_FILES["videos"];
+    $uploadedCount = count($uploaded["name"]);
+    $tempVideos = [];
+
+    for ($i = 0; $i < $uploadedCount; $i++) {
+        if ($uploaded["error"][$i] === UPLOAD_ERR_OK) {
+            $name = basename($uploaded["name"][$i]);
+            $tmpPath = $uploaded["tmp_name"][$i];
+            $destPath = getConfig('paths.uploads', 'uploads') . '/' . uniqid("video_") . "_" . $name;
+            move_uploaded_file($tmpPath, $destPath);
+            $tempVideos[] = $destPath;
+        }
+    }
+
+    echo "<h2>Video caricati:</h2><ul>";
+    foreach ($tempVideos as $video) {
+        echo "<li>$video</li>";
+    }
+    echo "</ul><p><strong>Elaborazione non ancora implementata.</strong></p>";
 }
 ?>
 
@@ -37,28 +56,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['video'])) {
     <title>VideoAssembly</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 2rem;
-            background-color: #f7f7f7;
+            font-family: sans-serif;
+            padding: 2rem;
+            background: #f4f4f4;
         }
         form {
-            background: #fff;
+            background: white;
             padding: 2rem;
             border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,.1);
             max-width: 600px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
         label {
             display: block;
             margin: 1rem 0 0.5rem;
         }
+        input, select {
+            width: 100%;
+            padding: 0.5rem;
+        }
         button {
             margin-top: 1rem;
-            padding: 0.5rem 1.5rem;
-            background: #007BFF;
+            padding: 0.7rem 1.2rem;
+            background: #007bff;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
         }
         button:hover {
@@ -67,35 +90,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['video'])) {
     </style>
 </head>
 <body>
-    <h1>VideoAssembly</h1>
+    <h1>VideoAssembly – Upload multipli</h1>
     <form method="post" enctype="multipart/form-data">
-        <label>Carica un video:
-            <input type="file" name="video" required>
+        <label>Carica uno o più video:
+            <input type="file" name="videos[]" accept="video/*" multiple required>
         </label>
-        <label><input type="checkbox" name="privacy" checked> Offusca i volti con emoji</label>
-        <label><input type="checkbox" name="people"> Rileva presenza persone</label>
-
-        <label>Durata massima del video (secondi):
-            <input type="number" name="max_duration" value="180">
+        <label>Modalità:
+            <select name="mode">
+                <option value="simple">Semplice</option>
+                <option value="detect_people">Rileva persone</option>
+            </select>
         </label>
-
+        <label>Durata massima (in minuti):
+            <input type="number" name="duration" value="3">
+        </label>
+        <label>Metodo durata:
+            <select name="duration_method">
+                <option value="trim">Taglia</option>
+                <option value="speed">Accelera</option>
+            </select>
+        </label>
         <label>Effetto video:
             <select name="effect">
                 <option value="none">Nessuno</option>
                 <option value="bw">Bianco e nero</option>
                 <option value="vintage">Vintage</option>
-                <option value="contrast">Contrasto forte</option>
+                <option value="contrast">Contrasto</option>
             </select>
         </label>
-
         <label>Audio di sottofondo:
             <select name="audio">
                 <option value="none">Nessuno</option>
                 <option value="emozionale">Emozionale</option>
             </select>
         </label>
-
-        <button type="submit">Elabora Video</button>
+        <label><input type="checkbox" name="privacy" checked> Applica emoji privacy (volti)</label>
+        <button type="submit">Carica e elabora</button>
     </form>
 </body>
 </html>
