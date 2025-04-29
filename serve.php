@@ -8,21 +8,18 @@ if (!isset($_GET['file'])) {
     exit;
 }
 
-$file = $_GET['file'];
-
-// Sanificazione del percorso per evitare attacchi di directory traversal
-$file = str_replace('..', '', $file);
-
-$path = __DIR__ . '/' . $file;
+$filename = basename($_GET['file']); // evita accessi arbitrari
+$path = __DIR__ . '/uploads/' . $filename;
 
 if (!file_exists($path)) {
     http_response_code(404);
-    echo "File non trovato.";
+    echo "Il file richiesto non esiste.";
     exit;
 }
 
-$mimeType = mime_content_type($path);
-header('Content-Type: ' . $mimeType);
+header('Content-Description: File Transfer');
+header('Content-Type: ' . mime_content_type($path));
+header('Content-Disposition: attachment; filename="' . $filename . '"');
 header('Content-Length: ' . filesize($path));
 readfile($path);
 exit;
