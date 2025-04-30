@@ -4,7 +4,8 @@ ini_set('display_errors', 1);
 
 if (!isset($_GET['file'])) {
   http_response_code(400);
-  echo "Errore: nessun file richiesto."; exit;
+  echo "Errore: nessun file richiesto.";
+  exit;
 }
 $file = basename($_GET['file']);
 $path = __DIR__ . '/uploads/' . $file;
@@ -19,4 +20,3 @@ header('Content-Disposition: attachment; filename="'.$file.'"');
 header('Content-Length: '.filesize($path));
 readfile($path);
 exit;
-?>
