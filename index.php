@@ -100,8 +100,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES["videos"])) {
     $result = processVideoChain($tempVideos, $options);
     $fileName = basename($result);
 
-    echo "<h2>Video Elaborato:</h2>";
-    echo "<p><a href='serve.php?file=$fileName'>Scarica il video</a></p>";
+    echo "<div style='font-family:sans-serif;padding:2rem;'><h2>✅ Video Elaborato!</h2>";
+    echo "<p><a href='serve.php?file=$fileName' style='background:#28a745;color:white;padding:1rem 2rem;text-decoration:none;border-radius:6px;'>Scarica il video</a></p></div>";
     exit;
 }
 ?>
@@ -109,44 +109,55 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES["videos"])) {
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <title>VideoAssembly</title>
+  <meta charset="UTF-8">
+  <title>VideoAssembly</title>
+  <style>
+    body { font-family: sans-serif; background: #f4f4f4; margin: 0; padding: 2rem; }
+    form { background: white; padding: 2rem; max-width: 600px; margin: auto; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    h1 { text-align: center; }
+    label { display: block; margin-top: 1rem; }
+    input, select { width: 100%; padding: 0.5rem; margin-top: 0.3rem; }
+    button { margin-top: 2rem; padding: 0.8rem; width: 100%; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #0056b3; }
+  </style>
 </head>
 <body>
-    <h1>VideoAssembly</h1>
-    <form method="post" enctype="multipart/form-data">
-        <label>Carica uno o più video:
-            <input type="file" name="videos[]" multiple required>
-        </label><br>
-        <label>Modalità:
-            <select name="mode">
-                <option value="simple">Semplice</option>
-                <option value="detect_people">Rileva Persone</option>
-            </select>
-        </label><br>
-        <label>Durata massima (minuti): <input type="number" name="duration" value="3"></label><br>
-        <label>Metodo durata:
-            <select name="duration_method">
-                <option value="trim">Taglia</option>
-                <option value="speed">Accelera</option>
-            </select>
-        </label><br>
-        <label>Effetto video:
-            <select name="effect">
-                <option value="none">Nessuno</option>
-                <option value="bw">Bianco e Nero</option>
-                <option value="vintage">Vintage</option>
-                <option value="contrast">Contrasto</option>
-            </select>
-        </label><br>
-        <label>Audio di sottofondo:
-            <select name="audio">
-                <option value="none">Nessuno</option>
-                <option value="emozionale">Emozionale</option>
-            </select>
-        </label><br>
-        <label><input type="checkbox" name="privacy" checked> Applica Emoji Privacy sui Volti</label><br>
-        <button type="submit">Carica e Elabora</button>
-    </form>
+  <h1>VideoAssembly</h1>
+  <form method="post" enctype="multipart/form-data">
+    <label>Carica uno o più video:
+      <input type="file" name="videos[]" multiple required>
+    </label>
+    <label>Modalità:
+      <select name="mode">
+        <option value="simple">Semplice</option>
+        <option value="detect_people">Rileva Persone</option>
+      </select>
+    </label>
+    <label>Durata massima (in minuti):
+      <input type="number" name="duration" value="3" min="1">
+    </label>
+    <label>Metodo durata:
+      <select name="duration_method">
+        <option value="trim">Taglia</option>
+        <option value="speed">Accelera</option>
+      </select>
+    </label>
+    <label>Effetto video:
+      <select name="effect">
+        <option value="none">Nessuno</option>
+        <option value="bw">Bianco e Nero</option>
+        <option value="vintage">Vintage</option>
+        <option value="contrast">Contrasto</option>
+      </select>
+    </label>
+    <label>Audio di sottofondo:
+      <select name="audio">
+        <option value="none">Nessuno</option>
+        <option value="emozionale">Emozionale</option>
+      </select>
+    </label>
+    <label><input type="checkbox" name="privacy" checked> Applica emoji sui volti</label>
+    <button type="submit">Carica e Elabora</button>
+  </form>
 </body>
 </html>
