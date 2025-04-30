@@ -5,6 +5,15 @@ define('UPLOAD_DIR', __DIR__ . '/uploads');
 define('TEMP_DIR', __DIR__ . '/temp');
 define('FFMPEG_PATH', '/usr/bin/ffmpeg'); // Percorso FFMPEG corretto su Render
 
+// Crea le directory se non esistono
+if (!file_exists(UPLOAD_DIR)) {
+    mkdir(UPLOAD_DIR, 0777, true);
+}
+
+if (!file_exists(TEMP_DIR)) {
+    mkdir(TEMP_DIR, 0777, true);
+}
+
 /**
  * Ottiene un valore di configurazione
  */
