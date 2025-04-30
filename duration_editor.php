@@ -1,49 +1,26 @@
 <?php
 require_once 'config.php';
-require_once 'ffmpeg_script.php';
-
-/**
- * Applica modifica di durata (taglio o velocizzazione) a un video
- *
- * @param string $inputPath Percorso del file video
- * @param int $targetDuration Durata target in secondi
- * @param string $method Metodo ('trim' o 'speed')
- * @return string Percorso nuovo file video
- */
-function applyDurationEdit($inputPath, $targetDuration, $method = 'trim') {
-    if ($method === 'trim') {
-        $outputPath = TEMP_DIR . '/trim_' . uniqid() . '.mp4';
-        $cmd = sprintf('%s -y -i "%s" -t %d -c copy "%s"',
-            FFMPEG_PATH, $inputPath, $targetDuration, $outputPath);
-        shell_exec($cmd);
-    } elseif ($method === 'speed') {
-        $originalDuration = getVideoDuration($inputPath);
-        if ($originalDuration <= 0) {
-            return $inputPath;
-        }
-        $speedFactor = $originalDuration / $targetDuration;
-        $outputPath = TEMP_DIR . '/speed_' . uniqid() . '.mp4';
-        $cmd = sprintf('%s -y -i "%s" -filter_complex "[0:v]setpts=PTS/%.2f[v];[0:a]atempo=%.2f[a]" -map "[v]" -map "[a]" "%s"',
-            FFMPEG_PATH, $inputPath, $speedFactor, min(max($speedFactor, 0.5), 2.0), $outputPath);
-        shell_exec($cmd);
+function applyDurationEdit($in, $target, $method='trim'){
+    $out = TEMP_DIR . '/dur_' . uniqid() . '.mp4';
+    if($method==='trim'){
+        shell_exec(sprintf(
+            '%s -y -threads 0 -preset ultrafast -i %s -t %d -c copy %s',
+            FFMPEG_PATH,escapeshellarg($in),$target,escapeshellarg($out)
+        ));
     } else {
-        return $inputPath;
+        $dur = getVideoDuration($in);
+        $factor = $dur/$target;
+        shell_exec(sprintf(
+            '%s -y -threads 0 -preset ultrafast -i %s -filter_complex "[0:v]setpts=PTS/%.2f[v];[0:a]atempo=%.2f[a]" -map "[v]" -map "[a]" %s',
+            FFMPEG_PATH,escapeshellarg($in),$factor,min(max($factor,0.5),2.0),escapeshellarg($out)
+        ));
     }
-
-    return file_exists($outputPath) ? $outputPath : $inputPath;
+    return file_exists($out) ? $out : $in;
 }
-
-/**
- * Ottiene la durata di un video
- */
-function getVideoDuration($filePath) {
-    $cmd = sprintf('%s -i "%s" 2>&1', FFMPEG_PATH, $filePath);
-    $output = shell_exec($cmd);
-    if (preg_match('/Duration: (\d+):(\d+):(\d+\.\d+)/', $output, $matches)) {
-        $hours = (int)$matches[1];
-        $minutes = (int)$matches[2];
-        $seconds = (float)$matches[3];
-        return ($hours * 3600) + ($minutes * 60) + $seconds;
+function getVideoDuration($file){
+    $o = shell_exec(sprintf('%s -i %s 2>&1',FFMPEG_PATH,escapeshellarg($file)));
+    if(preg_match('/Duration: (\d+):(\d+):(\d+\.\d+)/',$o,$m)){
+        return $m[1]*3600+$m[2]*60+$m[3];
     }
     return 0;
 }
