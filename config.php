@@ -1,51 +1,41 @@
 <?php
 // Configurazioni principali
-
 define('UPLOAD_DIR', __DIR__ . '/uploads');
-define('TEMP_DIR', __DIR__ . '/temp');
-define('FFMPEG_PATH', '/usr/bin/ffmpeg'); // Percorso FFMPEG corretto su Render
+define('TEMP_DIR',   __DIR__ . '/temp');
+define('FFMPEG_PATH','/usr/bin/ffmpeg');
+define('PRIVACY_LOG', __DIR__ . '/privacy_log.json');
 
-// Crea le directory se non esistono
-if (!file_exists(UPLOAD_DIR)) {
-    mkdir(UPLOAD_DIR, 0777, true);
+// Crea le cartelle se non esistono
+foreach ([UPLOAD_DIR, TEMP_DIR] as $d) {
+    if (!file_exists($d)) mkdir($d, 0777, true);
 }
 
-if (!file_exists(TEMP_DIR)) {
-    mkdir(TEMP_DIR, 0777, true);
-}
-
-/**
- * Ottiene un valore di configurazione
- */
 function getConfig($key, $default = null) {
     $config = [
         'paths' => [
-            'uploads' => UPLOAD_DIR,
-            'temp' => TEMP_DIR
+            'uploads'     => UPLOAD_DIR,
+            'temp'        => TEMP_DIR,
+            'privacy_log' => PRIVACY_LOG,
         ],
         'system' => [
-            'cleanup_temp' => true
-        ]
+            'cleanup_temp' => true,
+            'debug'        => true,
+        ],
+        'privacy' => [
+            'retention_hours' => 48,
+            'track_files'     => true,
+        ],
     ];
-
-    $keys = explode('.', $key);
-    $value = $config;
-
-    foreach ($keys as $k) {
-        if (isset($value[$k])) {
-            $value = $value[$k];
-        } else {
-            return $default;
-        }
+    $parts = explode('.', $key);
+    $v = $config;
+    foreach ($parts as $p) {
+        if (isset($v[$p])) $v = $v[$p];
+        else return $default;
     }
-
-    return $value;
+    return $v;
 }
 
-/**
- * Imposta un valore di configurazione (semplificato)
- */
 function setConfig($key, $value) {
-    // Non implementato nella versione semplice
+    // non implementato
 }
 ?>
