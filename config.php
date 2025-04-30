@@ -38,4 +38,3 @@ function getConfig($key, $default = null) {
 function setConfig($key, $value) {
     // non implementato
 }
-?>
