@@ -1,7 +1,15 @@
 <?php
-require_once 'config.php';
+require_once __DIR__ . '/config.php';
 
-function applyVideoEffect($in, $out, $effect) {
+/**
+ * Applica un effetto video semplice con FFmpeg.
+ *
+ * @param string $in     File di input
+ * @param string $out    File di output
+ * @param string $effect Nome effetto: none, bw, vintage, contrast
+ * @return bool          True se l'output esiste e non è vuoto
+ */
+function applyVideoEffect(string $in, string $out, string $effect): bool {
     switch ($effect) {
         case 'bw':
             $filter = 'hue=s=0';
@@ -15,14 +23,13 @@ function applyVideoEffect($in, $out, $effect) {
         default:
             return copy($in, $out);
     }
-
-    $cmd = sprintf(
-        '%s -y -threads 0 -preset ultrafast -i %s -vf "%s" -c:a copy %s',
-        FFMPEG_PATH,
-        escapeshellarg($in),
-        $filter,
-        escapeshellarg($out)
-    );
+    $cmd = escapeshellcmd(FFMPEG_PATH)
+         . " -y -threads 0 -preset ultrafast -i "
+         . escapeshellarg($in)
+         . " -vf "
+         . escapeshellarg($filter)
+         . " -c:a copy "
+         . escapeshellarg($out);
     shell_exec($cmd);
     return file_exists($out) && filesize($out) > 0;
 }
