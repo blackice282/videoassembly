@@ -1,37 +1,29 @@
 <?php
-require_once 'config.php';
+define('UPLOAD_DIR', __DIR__ . '/uploads');
+define('TEMP_DIR',   __DIR__ . '/temp');
+define('FFMPEG_PATH','/usr/bin/ffmpeg');
 
-/**
- * Concatena clip specificate in array in un unico video
- *
- * @param array  $inputs Array di percorsi file video
- * @param string $out    Percorso file video di output
- */
-function applyTransitions($inputs, $out) {
-    // Crea file temporaneo con lista di clip
-    $list = TEMP_DIR . '/concat_' . uniqid() . '.txt';
-    $lines = array_map(function($path) {
-        return "file '" . str_replace("'", "\\'", $path) . "'";
-    }, $inputs);
-    file_put_contents($list, implode("\n", $lines));
+foreach ([UPLOAD_DIR, TEMP_DIR] as $d) {
+    if (!file_exists($d)) mkdir($d, 0777, true);
+}
 
-    // Esegue concatenazione veloce
-    $cmd = sprintf(
-        '%s -y -threads 0 -preset ultrafast -f concat -safe 0 -i %s -c copy %s 2>&1',
-        FFMPEG_PATH,
-        escapeshellarg($list),
-        escapeshellarg($out)
-    );
-    shell_exec($cmd);
-
-    // Se il file non è stato creato, fallback: copia il primo clip
-    if (!file_exists($out) || filesize($out) === 0) {
-        copy($inputs[0], $out);
+function getConfig($key, $default = null) {
+    $config = [
+        'paths' => [
+            'uploads' => UPLOAD_DIR,
+            'temp'    => TEMP_DIR
+        ],
+        'system' => [
+            'cleanup_temp' => true,
+            'debug'        => true
+        ]
+    ];
+    $parts = explode('.', $key);
+    $v = $config;
+    foreach ($parts as $p) {
+        if (!isset($v[$p])) return $default;
+        $v = $v[$p];
     }
-
-    // Rimuove file lista
-    unlink($list);
-
-    return file_exists($out) && filesize($out) > 0;
+    return $v;
 }
 ?>
