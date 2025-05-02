@@ -1,44 +1,49 @@
 <?php
+// ffmpeg_script.php
 require_once __DIR__ . '/config.php';
 
 /**
- * Concatena più clip in un unico video usando filter_complex concat.
+ * Concatena più clip in un unico MP4 tramite segmenti MPEG‑TS,
+ * molto più affidabile del concat demuxer sui MP4 diretti.
  *
- * @param array  $inputs Array di percorsi file video
- * @param string $out    Percorso file video di output
- * @return string        Percorso del file generato
+ * @param array  $inputs Array di percorsi MP4
+ * @param string $out    Percorso file MP4 di output
+ * @return string        Percorso dell’output
  */
 function applyTransitions(array $inputs, string $out): string {
-    $count = count($inputs);
-    if ($count === 0) {
-        return '';
+    // 1) Directory temporanea per i segmenti .ts
+    $tempDir = getConfig('paths.temp') . '/ts_' . uniqid();
+    if (!is_dir($tempDir)) mkdir($tempDir, 0777, true);
+
+    $tsFiles = [];
+    // 2) Converti ogni MP4 in TS
+    foreach ($inputs as $i => $mp4) {
+        $ts = "{$tempDir}/seg{$i}.ts";
+        $cmd = FFMPEG_PATH
+             . ' -y -i ' . escapeshellarg($mp4)
+             . ' -c copy -bsf:v h264_mp4toannexb -f mpegts '
+             . escapeshellarg($ts);
+        shell_exec($cmd);
+        if (file_exists($ts)) {
+            $tsFiles[] = $ts;
+        }
     }
 
-    // Costruisci l'elenco degli -i
-    $inputArgs = '';
-    foreach ($inputs as $path) {
-        $inputArgs .= ' -i ' . escapeshellarg($path);
+    // 3) Se abbiamo segmenti, concatena in un MP4 finale
+    if (count($tsFiles) > 0) {
+        $concat = 'concat:' . implode('|', $tsFiles);
+        $cmd2 = FFMPEG_PATH
+              . ' -y -i ' . escapeshellarg($concat)
+              . ' -c copy -bsf:a aac_adtstoasc '
+              . escapeshellarg($out);
+        shell_exec($cmd2);
     }
 
-    // Costruisci la parte filter_complex
-    // es. [0:v:0][0:a:0][1:v:0][1:a:0]…concat=n=2:v=1:a=1[v][a]
-    $filter = '';
-    for ($i = 0; $i < $count; $i++) {
-        $filter .= "[$i:v:0][$i:a:0]";
+    // 4) Pulisci i .ts
+    foreach ($tsFiles as $ts) {
+        @unlink($ts);
     }
-    $filter .= "concat=n={$count}:v=1:a=1[v][a]";
-
-    // Componi il comando FFmpeg
-    $cmd = sprintf(
-        '%s -y -threads 0 -preset ultrafast%s -filter_complex "%s" -map "[v]" -map "[a]" %s 2>&1',
-        FFMPEG_PATH,
-        $inputArgs,
-        $filter,
-        escapeshellarg($out)
-    );
-
-    // Esegui e, se vuoi debug, salva l’output in log
-    shell_exec($cmd);
+    @rmdir($tempDir);
 
     return $out;
 }
