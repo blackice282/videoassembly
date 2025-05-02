@@ -63,11 +63,9 @@ function processVideoChain($videos, $opts) {
         }
         $processed[] = $w;
     }
-    // Merge con transizioni
     $final = getConfig('paths.uploads') . "/" . generateOutputName();
     logStep("Applying transitions to " . count($processed) . " clips");
     applyTransitions($processed, $final);
-    // Background audio
     if ($opts['audio'] !== 'none') {
         logStep(" - applyBackgroundAudio ({$opts['audio']})");
         $audio = getRandomAudioFromCategory($opts['audio']);
@@ -95,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['videos'])) {
         'privacy'         => isset($_POST['privacy']),
     ];
 
-    // Upload multiplo
     $upl = $_FILES['videos'];
     $clips = [];
     for ($i = 0; $i < count($upl['name']); $i++) {
