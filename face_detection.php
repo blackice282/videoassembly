@@ -2,23 +2,11 @@
 require_once __DIR__ . '/config.php';
 
 /**
- * Applica la privacy sui volti (stub: copia file)
- *
- * @param string $input  Percorso video input
- * @param string $output Percorso video output
- * @return bool          True se il file output è stato creato con successo
+ * Stub privacy volti: copia semplice
  */
-function applyFacePrivacy($input, $output) {
-    // Verifica che il file di input esista
-    if (!file_exists($input)) {
-        return false;
-    }
-    // Assicura che la directory di output esista
+function applyFacePrivacy(string $input, string $output): bool {
+    if (!file_exists($input)) return false;
     $dir = dirname($output);
-    if (!file_exists($dir)) {
-        mkdir($dir, 0777, true);
-    }
-    // Copia il file
+    if (!is_dir($dir)) mkdir($dir, 0777, true);
     return copy($input, $output);
 }
-?>
