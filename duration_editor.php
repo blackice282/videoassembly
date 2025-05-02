@@ -1,12 +1,10 @@
 <?php
 // duration_editor.php
-// Funzione che, data una lista di file video, li concatena e poi tronca alla durata (in secondi)
 
 function duration_trim_and_merge(array $inputs, int $maxSeconds, string $outputDir): ?string {
     $txtList = tempnam(sys_get_temp_dir(), 'fflist');
     $fp = fopen($txtList, 'w');
     foreach ($inputs as $file) {
-        // deve essere un percorso assoluto
         fprintf($fp, "file '%s'\n", addslashes(realpath($file)));
     }
     fclose($fp);
