@@ -4,19 +4,19 @@ define('TEMP_DIR',   __DIR__ . '/temp');
 define('FFMPEG_PATH','/usr/bin/ffmpeg');
 
 foreach ([UPLOAD_DIR, TEMP_DIR] as $d) {
-    if (!file_exists($d)) mkdir($d, 0777, true);
+    if (!is_dir($d)) mkdir($d, 0777, true);
 }
 
 function getConfig($key, $default = null) {
     $config = [
         'paths' => [
             'uploads' => UPLOAD_DIR,
-            'temp'    => TEMP_DIR
+            'temp'    => TEMP_DIR,
         ],
         'system' => [
+            'debug'        => true,
             'cleanup_temp' => true,
-            'debug'        => true
-        ]
+        ],
     ];
     $parts = explode('.', $key);
     $v = $config;
@@ -26,4 +26,3 @@ function getConfig($key, $default = null) {
     }
     return $v;
 }
-?>
