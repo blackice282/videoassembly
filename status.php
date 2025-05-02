@@ -1,5 +1,4 @@
 <?php
-// status.php
 require_once __DIR__ . '/config.php';
 header('Content-Type: text/plain');
 
@@ -11,3 +10,4 @@ if (file_exists($path)) {
 } else {
     echo "Nessun job trovato: $job\n";
 }
+?>
