@@ -1,40 +1,37 @@
 <?php
-// Configurazioni principali
-define('UPLOAD_DIR', __DIR__ . '/uploads');
-define('TEMP_DIR',   __DIR__ . '/temp');
-define('FFMPEG_PATH','/usr/bin/ffmpeg');
-define('PRIVACY_LOG', __DIR__ . '/privacy_log.json');
+require_once 'config.php';
 
-// Crea le cartelle se non esistono
-foreach ([UPLOAD_DIR, TEMP_DIR] as $d) {
-    if (!file_exists($d)) mkdir($d, 0777, true);
-}
+/**
+ * Concatena clip specificate in array in un unico video
+ *
+ * @param array  $inputs Array di percorsi file video
+ * @param string $out    Percorso file video di output
+ */
+function applyTransitions($inputs, $out) {
+    // Crea file temporaneo con lista di clip
+    $list = TEMP_DIR . '/concat_' . uniqid() . '.txt';
+    $lines = array_map(function($path) {
+        return "file '" . str_replace("'", "\\'", $path) . "'";
+    }, $inputs);
+    file_put_contents($list, implode("\n", $lines));
 
-function getConfig($key, $default = null) {
-    $config = [
-        'paths' => [
-            'uploads'     => UPLOAD_DIR,
-            'temp'        => TEMP_DIR,
-            'privacy_log' => PRIVACY_LOG,
-        ],
-        'system' => [
-            'cleanup_temp' => true,
-            'debug'        => true,
-        ],
-        'privacy' => [
-            'retention_hours' => 48,
-            'track_files'     => true,
-        ],
-    ];
-    $parts = explode('.', $key);
-    $v = $config;
-    foreach ($parts as $p) {
-        if (isset($v[$p])) $v = $v[$p];
-        else return $default;
+    // Esegue concatenazione veloce
+    $cmd = sprintf(
+        '%s -y -threads 0 -preset ultrafast -f concat -safe 0 -i %s -c copy %s 2>&1',
+        FFMPEG_PATH,
+        escapeshellarg($list),
+        escapeshellarg($out)
+    );
+    shell_exec($cmd);
+
+    // Se il file non è stato creato, fallback: copia il primo clip
+    if (!file_exists($out) || filesize($out) === 0) {
+        copy($inputs[0], $out);
     }
-    return $v;
-}
 
-function setConfig($key, $value) {
-    // non implementato
+    // Rimuove file lista
+    unlink($list);
+
+    return file_exists($out) && filesize($out) > 0;
 }
+?>
