@@ -1,85 +1,100 @@
 <?php
-require 'config.php';
+require __DIR__ . '/config.php';
 
-// Percorsi definiti in config.php
-$uploadDir = getConfig('paths.uploads');
-$tempDir   = getConfig('paths.temp');
-$outputDir = getConfig('paths.output');
+// 1) Creo le cartelle se non esistono
+foreach ([
+    getConfig('paths.uploads'),
+    getConfig('paths.temp'),
+    getConfig('paths.output')
+] as $d) {
+    if (!is_dir($d)) {
+        mkdir($d, 0755, true);
+    }
+}
 
-// Creazione directory se non esistono
-if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-if (!is_dir($tempDir))   mkdir($tempDir,   0755, true);
-if (!is_dir($outputDir)) mkdir($outputDir, 0755, true);
+$maxMB    = getConfig('system.max_upload_size', 100);
+$maxBytes = $maxMB * 1024 * 1024;
+$results  = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($_FILES['videos'])) {
-        echo "<p>Nessun file video caricato.</p>";
-        exit;
+        die('Nessun file video caricato.');
     }
 
-    $files = $_FILES['videos'];
-    $desiredMinutes = (int) ($_POST['duration'] ?? 3);
-    $maxSizeMB = getConfig('system.max_upload_size', 200);
-    $processed = [];
+    $videos   = $_FILES['videos'];
+    $count    = count($videos['name']);
+    $minutes  = max(1, (int)($_POST['duration'] ?? 3));
+    $secs     = $minutes * 60;
+    $aiPrompt = trim($_POST['ai_instructions'] ?? '');
 
-    foreach ($files['tmp_name'] as $i => $tmpName) {
-        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
-        if ($files['size'][$i] > $maxSizeMB * 1024 * 1024) continue;
+    for ($i = 0; $i < $count; $i++) {
+        if ($videos['error'][$i] !== UPLOAD_ERR_OK) {
+            continue;
+        }
+        if ($videos['size'][$i] > $maxBytes) {
+            continue;
+        }
 
-        $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-        $baseName = uniqid('video_');
-        $inputPath = "$uploadDir/{$baseName}.{$ext}";
-        move_uploaded_file($tmpName, $inputPath);
+        // Salvo il file in uploads/
+        $ext        = pathinfo($videos['name'][$i], PATHINFO_EXTENSION);
+        $uniq       = uniqid('vid_');
+        $inPath     = getConfig('paths.uploads') . "/{$uniq}.{$ext}";
+        move_uploaded_file($videos['tmp_name'][$i], $inPath);
 
-        // Output verticale 9:16 a 720x1280 px, trim in base alla durata
-        $resolution = '720x1280';
-        $outputPath = "$outputDir/{$baseName}_out.mp4";
-        $cmd = sprintf(
-            'ffmpeg -i %s -vf "scale=%s:force_original_aspect_ratio=decrease,pad=%s:(ow-iw)/2:(oh-ih)/2,setsar=1" -t %d -c:v %s -c:a %s %s 2>&1',
-            escapeshellarg($inputPath),
-            escapeshellarg($resolution),
-            escapeshellarg($resolution),
-            $desiredMinutes * 60,
-            getConfig('ffmpeg.video_codec', 'libx264'),
-            getConfig('ffmpeg.audio_codec', 'aac'),
-            escapeshellarg($outputPath)
+        // Comando FFmpeg: vertical 9:16, taglio a durata scelta
+        $outPath    = getConfig('paths.output') . "/processed_{$uniq}.mp4";
+        $vf         = 'scale=720:1280,setsar=1:1';
+        $cmd        = sprintf(
+            'ffmpeg -i %s -t %d -vf "%s" -c:v %s -preset veryfast -crf %s -c:a %s %s 2>&1',
+            escapeshellarg($inPath),
+            $secs,
+            $vf,
+            getConfig('ffmpeg.video_codec'),
+            getConfig('ffmpeg.video_quality'),
+            getConfig('ffmpeg.audio_codec'),
+            escapeshellarg($outPath)
         );
-        exec($cmd, $output, $returnCode);
-        if ($returnCode === 0) {
-            $processed[] = $outputPath;
+
+        exec($cmd, $log, $r);
+        if ($r === 0 && file_exists($outPath)) {
+            $results[] = $outPath;
         }
     }
-
-    // Mostra link per il download dei video montati
-    echo "<h2>Video montati:</h2><ul>";
-    foreach ($processed as $vid) {
-        $url = rtrim(getConfig('system.base_url'), '/') . '/' . $vid;
-        echo "<li><a href=\"{$url}\" download>" . basename($vid) . "</a></li>";
-    }
-    echo "</ul>";
-    exit;
 }
 ?>
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <title>Montaggio Video Verticale 9:16</title>
-    <link rel="stylesheet" href="style.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <title>VideoAssembly – Montaggio Video Automatico</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Montaggio Video Automatico (Verticale 9:16)</h1>
-        <form action="" method="post" enctype="multipart/form-data">
-            <label>Seleziona video (più file):
-                <input type="file" name="videos[]" multiple accept="video/*">
-            </label><br>
-            <label>Durata desiderata (minuti):
-                <input type="number" name="duration" value="3" min="1">
-            </label><br>
-            <button type="submit">Carica e Monta</button>
-        </form>
-    </div>
+  <h1>VideoAssembly</h1>
+  <form method="post" enctype="multipart/form-data">
+    <label>Seleziona video (max <?php echo $maxMB; ?> MB ciascuno, puoi caricarne più di uno):</label><br>
+    <input type="file" name="videos[]" multiple accept="video/*" required><br><br>
+
+    <label>Durata desiderata (minuti):</label><br>
+    <input type="number" name="duration" value="3" min="1" required><br><br>
+
+    <label>Istruzioni AI (opzionale):</label><br>
+    <input type="text" name="ai_instructions" placeholder="Es. migliora luminosità o stabilizza"><br><br>
+
+    <button type="submit">Carica e Monta</button>
+  </form>
+
+  <?php if (!empty($results)): ?>
+    <h2>Video montati:</h2>
+    <ul>
+      <?php foreach ($results as $file): ?>
+        <li>
+          <a href="<?php echo basename($file); ?>" download>
+            <?php echo basename($file); ?>
+          </a>
+        </li>
+      <?php endforeach; ?>
+    </ul>
+  <?php endif; ?>
 </body>
 </html>
