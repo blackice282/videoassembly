@@ -1,8 +1,8 @@
 <?php
 require_once __DIR__ . '/config.php';
 
-// Crea directory se non esistono
-function createDirs() {
+// Inizializza le cartelle di upload/output se necessario
+function initDirectories() {
     $dirs = [
         getConfig('paths.uploads'),
         getConfig('paths.temp'),
@@ -15,43 +15,44 @@ function createDirs() {
     }
 }
 
-createDirs();
+// Se preferisci non creare directory, commenta la riga seguente
+initDirectories();
 
 $outputFiles = [];
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['videos'])) {
-    $uploaded = $_FILES['videos'];
-    $count = count($uploaded['name']);
-    $duration = intval($_POST['duration'] ?? 0);
-    $aiInstructions = trim($_POST['ai_instructions'] ?? '');
+if (\$_SERVER['REQUEST_METHOD'] === 'POST' && isset(\$_FILES['videos'])) {
+    \$uploaded = \$_FILES['videos'];
+    \$count = count(\$uploaded['name']);
+    \$duration = intval(\$_POST['duration'] ?? 0);
+    \$aiInstructions = trim(\$_POST['ai_instructions'] ?? '');
 
-    for ($i = 0; $i < $count; $i++) {
-        if ($uploaded['error'][$i] === UPLOAD_ERR_OK) {
-            $tmpName = $uploaded['tmp_name'][$i];
-            $originalName = basename($uploaded['name'][$i]);
-            $uploadDir = getConfig('paths.uploads');
-            $outputDir = getConfig('paths.output');
-            $uniqueName = uniqid() . '_' . $originalName;
-            $targetPath = $uploadDir . '/' . $uniqueName;
+    for (\$i = 0; \$i < \$count; \$i++) {
+        if (\$uploaded['error'][\$i] === UPLOAD_ERR_OK) {
+            \$tmpName = \$uploaded['tmp_name'][\$i];
+            \$originalName = basename(\$uploaded['name'][\$i]);
+            \$uploadDir = getConfig('paths.uploads');
+            \$outputDir = getConfig('paths.output');
+            \$uniqueName = uniqid() . '_' . \$originalName;
+            \$targetPath = \$uploadDir . '/' . \$uniqueName;
 
-            if (move_uploaded_file($tmpName, $targetPath)) {
-                // Esegui il montaggio video con FFmpeg
-                $resolution = getConfig('ffmpeg.resolution');
-                $ffmpegCfg = getConfig('ffmpeg');
-                $outputName = uniqid('processed_') . '.mp4';
-                $outputPath = $outputDir . '/' . $outputName;
+            if (move_uploaded_file(\$tmpName, \$targetPath)) {
+                // Montaggio video verticale 9:16 con FFmpeg
+                \$resolution = getConfig('ffmpeg.resolution');
+                \$ffmpegCfg = getConfig('ffmpeg');
+                \$outputName = uniqid('processed_') . '.mp4';
+                \$outputPath = \$outputDir . '/' . \$outputName;
 
-                $cmd = sprintf(
-                    "ffmpeg -i %s -vf \"scale=%s\" -c:v %s -preset fast -crf %s -c:a %s %s",
-                    escapeshellarg($targetPath),
-                    escapeshellarg($resolution),
-                    $ffmpegCfg['video_codec'],
-                    $ffmpegCfg['video_quality'],
-                    $ffmpegCfg['audio_codec'],
-                    escapeshellarg($outputPath)
+                \$cmd = sprintf(
+                    "ffmpeg -i %s -vf \"scale=%s:iw*9/16,setsar=1\" -c:v %s -preset fast -crf %s -c:a %s %s",
+                    escapeshellarg(\$targetPath),
+                    escapeshellarg(getConfig('ffmpeg.resolution')),
+                    \$ffmpegCfg['video_codec'],
+                    \$ffmpegCfg['video_quality'],
+                    \$ffmpegCfg['audio_codec'],
+                    escapeshellarg(\$outputPath)
                 );
-                shell_exec($cmd);
+                shell_exec(\$cmd);
 
-                $outputFiles[] = $outputName;
+                \$outputFiles[] = \$outputName;
             }
         }
     }
@@ -80,11 +81,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['videos'])) {
         <button type="submit">Carica e Monta</button>
     </form>
 
-    <?php if (!empty($outputFiles)): ?>
+    <?php if (!empty(\$outputFiles)): ?>
         <h2>Video montati:</h2>
         <ul>
-            <?php foreach ($outputFiles as $video): ?>
-                <li><a href="<?php echo getConfig('paths.output') . '/' . $video; ?>" download><?php echo $video; ?></a></li>
+            <?php foreach (\$outputFiles as \$video): ?>
+                <li><a href="<?php echo getConfig('paths.output') . '/' . \$video; ?>" download><?php echo \$video; ?></a></li>
             <?php endforeach; ?>
         </ul>
     <?php endif; ?>
