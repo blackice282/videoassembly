@@ -1,84 +1,92 @@
 <?php
-// config.php
+require_once __DIR__ . '/config.php';
 
-// Percorsi delle directory
-$CONFIG = [
-    // Directory per i file
-    'paths' => [
-        'uploads' => 'uploads',
-        'temp'    => 'temp',
-        'output'  => 'output'
-    ],
-    
-    // Configurazione FFmpeg
-    'ffmpeg' => [
-        'video_codec'  => 'libx264',
-        'audio_codec'  => 'aac',
-        'video_quality'=> '23', // CRF (Constant Rate Factor) - valori più bassi = qualità superiore
-        'resolution'   => '720x1280', // Verticale 9:16
-    ],
-    
-    // Configurazione per il rilevamento delle persone
-    'detection' => [
-        'min_duration' => 1,    // Durata minima in secondi di un segmento con persone
-        'max_gap'      => 2,    // Durata massima in secondi tra segmenti da unire
-        'frame_rate'   => 1,    // Fotogrammi al secondo da analizzare
-        'confidence'   => 0.5,  // Soglia di confidenza per il rilevamento (0-1)
-    ],
-    
-    // Configurazione per le transizioni
-    'transitions' => [
-        'enabled'  => true,   // Abilita le transizioni tra segmenti
-        'type'     => 'fade', // Tipo di transizione (fade, dissolve, wipe)
-        'duration' => 0.5,    // Durata della transizione in secondi
-    ],
-    
-    // Configurazione per l'assistenza AI
-    'ai' => [
-        'enabled'           => true,
-        'prompt_placeholder'=> 'Descrivi qui l\'intervento AI desiderato (es. ritaglio, stabilizzazione, color grading)...'
-    ],
-    
-    // Altre impostazioni di sistema
-    'system' => [
-        'cleanup_temp'    => true,   // Elimina i file temporanei dopo l'elaborazione
-        'keep_original'   => true,   // Mantieni i file originali
-        'max_upload_size' => 500,    // Dimensione massima di upload in MB
-        'base_url'        => 'https://your-app-name.onrender.com', // URL base dell'app
-        'debug'           => false,  // Modalità debug
-    ]
-];
-
-/**
- * Restituisce un valore di configurazione per chiave puntata (es. 'ffmpeg.resolution').
- */
-function getConfig($key, $default = null) {
-    global $CONFIG;
-    $keys = explode('.', $key);
-    $value = $CONFIG;
-    foreach ($keys as $k) {
-        if (!isset($value[$k])) {
-            return $default;
+// Crea directory se non esistono
+function createDirs() {
+    $dirs = [
+        getConfig('paths.uploads'),
+        getConfig('paths.temp'),
+        getConfig('paths.output')
+    ];
+    foreach ($dirs as $dir) {
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
         }
-        $value = $value[$k];
     }
-    return $value;
 }
 
-/**
- * Imposta/modifica un valore di configurazione per chiave puntata.
- */
-function setConfig($key, $value) {
-    global $CONFIG;
-    $keys = explode('.', $key);
-    $lastKey = array_pop($keys);
-    $current = &$CONFIG;
-    foreach ($keys as $k) {
-        if (!isset($current[$k]) || !is_array($current[$k])) {
-            $current[$k] = [];
+createDirs();
+
+$outputFiles = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['videos'])) {
+    $uploaded = $_FILES['videos'];
+    $count = count($uploaded['name']);
+    $duration = intval($_POST['duration'] ?? 0);
+    $aiInstructions = trim($_POST['ai_instructions'] ?? '');
+
+    for ($i = 0; $i < $count; $i++) {
+        if ($uploaded['error'][$i] === UPLOAD_ERR_OK) {
+            $tmpName = $uploaded['tmp_name'][$i];
+            $originalName = basename($uploaded['name'][$i]);
+            $uploadDir = getConfig('paths.uploads');
+            $outputDir = getConfig('paths.output');
+            $uniqueName = uniqid() . '_' . $originalName;
+            $targetPath = $uploadDir . '/' . $uniqueName;
+
+            if (move_uploaded_file($tmpName, $targetPath)) {
+                // Esegui il montaggio video con FFmpeg
+                $resolution = getConfig('ffmpeg.resolution');
+                $ffmpegCfg = getConfig('ffmpeg');
+                $outputName = uniqid('processed_') . '.mp4';
+                $outputPath = $outputDir . '/' . $outputName;
+
+                $cmd = sprintf(
+                    "ffmpeg -i %s -vf \"scale=%s\" -c:v %s -preset fast -crf %s -c:a %s %s",
+                    escapeshellarg($targetPath),
+                    escapeshellarg($resolution),
+                    $ffmpegCfg['video_codec'],
+                    $ffmpegCfg['video_quality'],
+                    $ffmpegCfg['audio_codec'],
+                    escapeshellarg($outputPath)
+                );
+                shell_exec($cmd);
+
+                $outputFiles[] = $outputName;
+            }
         }
-        $current = &$current[$k];
     }
-    $current[$lastKey] = $value;
 }
 ?>
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Montaggio Video Automatico</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Montaggio Video Automatico</h1>
+    <form action="" method="post" enctype="multipart/form-data">
+        <label for="videos">Seleziona i video:</label>
+        <input type="file" name="videos[]" id="videos" multiple accept="video/*">
+        <br><br>
+        <label for="duration">Durata desiderata (minuti):</label>
+        <input type="number" id="duration" name="duration" min="1" value="3">
+        <br><br>
+        <label for="ai_instructions">Istruzioni AI (opzionale):</label>
+        <textarea id="ai_instructions" name="ai_instructions" placeholder="Es. Regola luminosità, aggiungi logo, ecc."></textarea>
+        <br><br>
+        <button type="submit">Carica e Monta</button>
+    </form>
+
+    <?php if (!empty($outputFiles)): ?>
+        <h2>Video montati:</h2>
+        <ul>
+            <?php foreach ($outputFiles as $video): ?>
+                <li><a href="<?php echo getConfig('paths.output') . '/' . $video; ?>" download><?php echo $video; ?></a></li>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+</body>
+</html>
