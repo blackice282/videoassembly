@@ -5,22 +5,16 @@ RUN apt-get update && apt-get install -y \
     ffmpeg \
     unzip \
     git \
-    && apt-get clean
+  && apt-get clean
 
-# Crea una cartella per i file
 WORKDIR /app
-
-# Copia tutto il contenuto della repo nella cartella di lavoro
 COPY . .
 
-# Espone la porta che Render si aspetta (Render userà 10000)
-EXPOSE 10000
-
-# Comando di avvio
-CMD ["php", "-S", "0.0.0.0:10000"]
-
-# Copia il file php.ini personalizzato
+# Copreerà il php.ini con i tuoi limiti di upload personalizzati
 COPY php.ini /usr/local/etc/php/
 
-# Altri comandi necessari per l'ambiente
-RUN docker-php-ext-install mysqli pdo pdo_mysql
+# Esponi la porta che Render gli passa, o 8000 se non definita (utile in locale)
+EXPOSE ${PORT:-8000}
+
+# Avvia il built-in server PHP sulla porta di Render
+CMD ["sh", "-c", "php -d display_errors=1 -S 0.0.0.0:${PORT:-8000} -t /app"]
