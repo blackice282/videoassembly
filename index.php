@@ -1,71 +1,85 @@
 <?php
-require_once 'config.php';
+require 'config.php';
 
-function createDirs() {
-    foreach ([UPLOAD_DIR, PROCESSED_DIR] as $d) {
-        if (!is_dir($d)) mkdir($d, 0777, true);
+// Percorsi definiti in config.php
+$uploadDir = getConfig('paths.uploads');
+$tempDir   = getConfig('paths.temp');
+$outputDir = getConfig('paths.output');
+
+// Creazione directory se non esistono
+if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+if (!is_dir($tempDir))   mkdir($tempDir,   0755, true);
+if (!is_dir($outputDir)) mkdir($outputDir, 0755, true);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (empty($_FILES['videos'])) {
+        echo "<p>Nessun file video caricato.</p>";
+        exit;
     }
-}
 
-createDirs();
+    $files = $_FILES['videos'];
+    $desiredMinutes = (int) ($_POST['duration'] ?? 3);
+    $maxSizeMB = getConfig('system.max_upload_size', 200);
+    $processed = [];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['videos'])) {
-    $duration = (int)$_POST['duration_minutes'];
-    $aiInstruction = trim($_POST['ai_instruction'] ?? '');
+    foreach ($files['tmp_name'] as $i => $tmpName) {
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+        if ($files['size'][$i] > $maxSizeMB * 1024 * 1024) continue;
 
-    foreach ($_FILES['videos']['tmp_name'] as $idx => $tmpPath) {
-        if ($_FILES['videos']['error'][$idx] !== UPLOAD_ERR_OK) continue;
+        $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
+        $baseName = uniqid('video_');
+        $inputPath = "$uploadDir/{$baseName}.{$ext}";
+        move_uploaded_file($tmpName, $inputPath);
 
-        $ext = pathinfo($_FILES['videos']['name'][$idx], PATHINFO_EXTENSION);
-        $id  = uniqid();
-        $in  = UPLOAD_DIR . "/{$id}.{$ext}";
-        $out = PROCESSED_DIR . "/{$id}_out.mp4";
-
-        move_uploaded_file($tmpPath, $in);
-
-        // qui passiamo anche $aiInstruction al processing, se serve
-        processVideoVertical($in, $out, $duration, $aiInstruction);
-
-        echo "<p>Video montato: <a href=\"download.php?f=" . basename($out) . "\">" . basename($out) . "</a></p>";
+        // Output verticale 9:16 a 720x1280 px, trim in base alla durata
+        $resolution = '720x1280';
+        $outputPath = "$outputDir/{$baseName}_out.mp4";
+        $cmd = sprintf(
+            'ffmpeg -i %s -vf "scale=%s:force_original_aspect_ratio=decrease,pad=%s:(ow-iw)/2:(oh-ih)/2,setsar=1" -t %d -c:v %s -c:a %s %s 2>&1',
+            escapeshellarg($inputPath),
+            escapeshellarg($resolution),
+            escapeshellarg($resolution),
+            $desiredMinutes * 60,
+            getConfig('ffmpeg.video_codec', 'libx264'),
+            getConfig('ffmpeg.audio_codec', 'aac'),
+            escapeshellarg($outputPath)
+        );
+        exec($cmd, $output, $returnCode);
+        if ($returnCode === 0) {
+            $processed[] = $outputPath;
+        }
     }
+
+    // Mostra link per il download dei video montati
+    echo "<h2>Video montati:</h2><ul>";
+    foreach ($processed as $vid) {
+        $url = rtrim(getConfig('system.base_url'), '/') . '/' . $vid;
+        echo "<li><a href=\"{$url}\" download>" . basename($vid) . "</a></li>";
+    }
+    echo "</ul>";
     exit;
-}
-
-function processVideoVertical($input, $output, $duration, $aiInstruction) {
-    // filtro 9:16: scala l’altezza a 1280px e crop di 720×1280 (centro)
-    $filter = "scale=-2:1280,crop=720:1280";
-    // qui potresti passare $aiInstruction ad un tuo servizio AI
-    $cmd = sprintf(
-        'ffmpeg -y -i %s -t %d -vf "%s" -c:v libx264 -preset fast -c:a copy %s 2>&1',
-        escapeshellarg($input),
-        $duration * 60,
-        $filter,
-        escapeshellarg($output)
-    );
-    exec($cmd, $out, $ret);
-    return $ret === 0;
 }
 ?>
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <title>Montaggio Video Automatico</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <title>Montaggio Video Verticale 9:16</title>
+    <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body>
-  <h1>Montaggio Video Automatico</h1>
-  <form action="" method="post" enctype="multipart/form-data">
-    <label>Seleziona video (più file)</label><br>
-    <input type="file" name="videos[]" multiple accept="video/*"><br><br>
-
-    <label>Durata desiderata (minuti)</label><br>
-    <input type="number" name="duration_minutes" value="3" min="1"><br><br>
-
-    <label>Istruzioni AI</label><br>
-    <textarea name="ai_instruction" rows="3" placeholder="Es. ‘Applica slow-motion nei primi 10 secondi’"></textarea><br><br>
-
-    <button type="submit">Carica e Monta</button>
-  </form>
+    <div class="container">
+        <h1>Montaggio Video Automatico (Verticale 9:16)</h1>
+        <form action="" method="post" enctype="multipart/form-data">
+            <label>Seleziona video (più file):
+                <input type="file" name="videos[]" multiple accept="video/*">
+            </label><br>
+            <label>Durata desiderata (minuti):
+                <input type="number" name="duration" value="3" min="1">
+            </label><br>
+            <button type="submit">Carica e Monta</button>
+        </form>
+    </div>
 </body>
 </html>
