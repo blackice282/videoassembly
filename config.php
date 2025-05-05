@@ -1,6 +1,27 @@
 <?php
 define('UPLOAD_DIR', __DIR__ . '/uploads');
-define('OUTPUT_DIR', __DIR__ . '/processed');
-if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0755, true);
-if (!is_dir(OUTPUT_DIR)) mkdir(OUTPUT_DIR, 0755, true);
+define('TEMP_DIR', __DIR__ . '/temp');
+define('FFMPEG_PATH', '/usr/bin/ffmpeg');
+
+function getConfig($key, $default = null) {
+    $config = [
+        'paths' => [
+            'uploads' => UPLOAD_DIR,
+            'temp' => TEMP_DIR
+        ],
+        'system' => [
+            'cleanup_temp' => true
+        ]
+    ];
+    $keys = explode('.', $key);
+    $value = $config;
+    foreach ($keys as $k) {
+        if (isset($value[$k])) {
+            $value = $value[$k];
+        } else {
+            return $default;
+        }
+    }
+    return $value;
+}
 ?>

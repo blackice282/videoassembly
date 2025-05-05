@@ -1,67 +1,76 @@
 <?php
-// Configurazione directory di upload e output
-include 'config.php';
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+require_once __DIR__ . '/config.php';
+
+function createDirs() {
+    if (!file_exists(getConfig('paths.uploads', UPLOAD_DIR))) {
+        mkdir(getConfig('paths.uploads', UPLOAD_DIR), 0777, true);
+    }
+    if (!file_exists(getConfig('paths.temp', TEMP_DIR))) {
+        mkdir(getConfig('paths.temp', TEMP_DIR), 0777, true);
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (empty($_FILES['videos'])) {
-        $error = 'Nessun file video caricato.';
-    } else {
-        $desiredDuration = intval($_POST['duration']);
-        $uploaded = $_FILES['videos'];
-        $paths = [];
-        for ($i = 0; $i < count($uploaded['name']); $i++) {
-            if ($uploaded['error'][$i] === UPLOAD_ERR_OK) {
-                $tmp = $uploaded['tmp_name'][$i];
-                $name = basename($uploaded['name'][$i]);
-                $target = UPLOAD_DIR . '/' . uniqid() . '_' . $name;
-                move_uploaded_file($tmp, $target);
-                $paths[] = $target;
-            }
-        }
-        if (count($paths) === 0) {
-            $error = 'Errore nel caricamento dei file.';
-        } else {
-            $concatList = tempnam(sys_get_temp_dir(), 'concat') . '.txt';
-            $fp = fopen($concatList, 'w');
-            foreach ($paths as $p) {
-                fwrite($fp, "file '" . addslashes($p) . "'\n");
-            }
-            fclose($fp);
-            $outputVideo = OUTPUT_DIR . '/' . uniqid() . '_montage.mp4';
-            $cmd = "ffmpeg -y -f concat -safe 0 -i $concatList -t " . ($desiredDuration*60) . " -c copy " . escapeshellarg($outputVideo) . " 2>&1";
-            exec($cmd, $output, $returnVar);
-            if ($returnVar === 0) {
-                header('Content-Type: video/mp4');
-                header('Content-Disposition: attachment; filename="montage.mp4"');
-                readfile($outputVideo);
-                exit;
-            } else {
-                $error = 'Errore durante il montaggio del video.';
-            }
+    createDirs();
+    $duration = isset($_POST['duration']) && is_numeric($_POST['duration']) ? intval($_POST['duration']) * 60 : 0;
+
+    $uploaded = $_FILES['videos'];
+    $tsFiles = [];
+
+    for ($i = 0; $i < count($uploaded['name']); $i++) {
+        if ($uploaded['error'][$i] === UPLOAD_ERR_OK) {
+            $tmpName = $uploaded['tmp_name'][$i];
+            $dest = getConfig('paths.uploads', UPLOAD_DIR) . '/' . uniqid('video_') . '_' . basename($uploaded['name'][$i]);
+            move_uploaded_file($tmpName, $dest);
+            $ts = getConfig('paths.temp', TEMP_DIR) . '/' . uniqid('ts_') . '.ts';
+            $cmd = FFMPEG_PATH . ' -i ' . escapeshellarg($dest) . ' -c copy -bsf:v h264_mp4toannexb -f mpegts ' . escapeshellarg($ts);
+            exec($cmd);
+            $tsFiles[] = $ts;
         }
     }
+
+    if (count($tsFiles) >= 1) {
+        $concatStr = implode('|', $tsFiles);
+        $output = getConfig('paths.uploads', UPLOAD_DIR) . '/final_' . date('Ymd_His') . '.mp4';
+        $cmd2 = FFMPEG_PATH . ' -i "concat:' . $concatStr . '" -c copy -bsf:a aac_adtstoasc ' . escapeshellarg($output);
+        exec($cmd2);
+        if ($duration > 0) {
+            $trimmed = str_replace('.mp4', '_trim.mp4', $output);
+            $cmd3 = FFMPEG_PATH . ' -i ' . escapeshellarg($output) . ' -t ' . $duration . ' -c copy ' . escapeshellarg($trimmed);
+            exec($cmd3);
+            $output = $trimmed;
+        }
+        echo "<h2>Video pronto</h2>";
+        echo "<p><a href="" . basename($output) . "" download>Scarica il video</a></p>";
+    } else {
+        echo "<p>Carica almeno un video valido.</p>";
+    }
+    exit;
 }
 ?>
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <title>Montaggio Video Automatico</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>VideoAssembly</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>Montaggio Video Automatico</h1>
-        <?php if (isset($error)): ?>
-            <p class="error"><?= htmlspecialchars($error) ?></p>
-        <?php endif; ?>
-        <form method="post" enctype="multipart/form-data">
-            <label for="videos">Seleziona video:</label>
-            <input type="file" name="videos[]" id="videos" multiple accept="video/*" required>
-            <label for="duration">Durata desiderata (minuti):</label>
-            <input type="number" name="duration" id="duration" min="1" max="60" value="3" required>
-            <button type="submit">Carica e Monta</button>
-        </form>
+<h1>VideoAssembly - Montaggio Video Automatico</h1>
+<form method="post" enctype="multipart/form-data">
+    <div class="form-group">
+        <label>Seleziona video (uno o più):</label>
+        <input type="file" name="videos[]" multiple accept="video/*" required>
     </div>
+    <div class="form-group">
+        <label>Durata desiderata (minuti, 0 = nessun limite):</label>
+        <input type="number" name="duration" min="0" value="3">
+    </div>
+    <button type="submit">Carica e Monta</button>
+</form>
 </body>
 </html>
