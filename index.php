@@ -1,100 +1,123 @@
 <?php
 require_once 'config.php';
+require_once 'ffmpeg_script.php';
+require_once 'people_detection.php';
+require_once 'transitions.php';
 require_once 'duration_editor.php';
+require_once 'video_effects.php';
+require_once 'audio_manager.php';
+require_once 'face_detection.php';
 
-$error = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Gestione degli errori di upload PHP
-    if (!isset($_FILES['video']) || $_FILES['video']['error'] === UPLOAD_ERR_NO_FILE) {
-        $error = 'Nessun file video caricato.';
+function createUploadsDir() {
+    $uploadPath = getConfig('paths.uploads', 'uploads');
+    if (!file_exists($uploadPath)) {
+        mkdir($uploadPath, 0777, true);
     }
-    elseif (in_array($_FILES['video']['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE])) {
-        $error = 'File troppo grande. Il limite massimo è ' . ini_get('upload_max_filesize') . '.';
-    }
-    elseif ($_FILES['video']['error'] !== UPLOAD_ERR_OK) {
-        $error = 'Errore durante l’upload (codice: ' . $_FILES['video']['error'] . ').';
-    }
-    else {
-        $duration = intval($_POST['duration']);
-        $result = process_upload_and_mount($_FILES['video'], $duration);
-        if (isset($result['error'])) {
-            $error = $result['error'];
-        } else {
-            header('Content-Type: video/mp4');
-            header('Content-Disposition: attachment; filename="montaggio.mp4"');
-            readfile($result['output_path']);
-            exit;
+}
+
+function generateOutputName() {
+    return 'render_' . date('Ymd_His') . '.mp4';
+}
+
+function processVideoChain($videos, $options) {
+    $processedVideos = [];
+    foreach ($videos as $video) {
+        $working = $video;
+        if ($options['mode'] === 'detect_people') {
+            $working = applyPeopleDetection($working);
         }
+        if ($options['duration'] > 0) {
+            $working = applyDurationEdit($working, $options['duration'], $options['duration_method']);
+        }
+        if ($options['effect'] !== 'none') {
+            $tmp = getConfig('paths.temp', 'temp') . '/effect_' . basename($working);
+            if (applyVideoEffect($working, $tmp, $options['effect'])) {
+                $working = $tmp;
+            }
+        }
+        if ($options['privacy']) {
+            $tmp = getConfig('paths.temp', 'temp') . '/privacy_' . basename($working);
+            if (applyFacePrivacy($working, $tmp)) {
+                $working = $tmp;
+            }
+        }
+        $processedVideos[] = $working;
+    }
+    $outputFinal = getConfig('paths.uploads', 'uploads') . '/' . generateOutputName();
+    applyTransitions($processedVideos, $outputFinal);
+    if ($options['audio'] !== 'none') {
+        $audio = getRandomAudioFromCategory($options['audio']);
+        if ($audio && downloadAudio($audio['url'], $tmpAudio := getConfig('paths.temp', 'temp') . '/track.mp3')) {
+            applyBackgroundAudio($outputFinal, $tmpAudio, $outputFinal, 0.3);
+        }
+    }
+    return $outputFinal;
+}
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['videos'])) {
+    createUploadsDir();
+    set_time_limit(600);
+
+    $options = [
+        'mode' => $_POST['mode'] ?? 'simple',
+        'duration' => isset($_POST['duration']) ? intval($_POST['duration']) * 60 : 0,
+        'duration_method' => $_POST['duration_method'] ?? 'trim',
+        'effect' => $_POST['effect'] ?? 'none',
+        'audio' => $_POST['audio'] ?? 'none',
+        'privacy' => isset($_POST['privacy']),
+    ];
+
+    $uploaded = $_FILES['videos'];
+    $count = count($uploaded['name']);
+    $videos = [];
+
+    for ($i = 0; $i < $count; $i++) {
+        if ($uploaded['error'][$i] === UPLOAD_ERR_OK) {
+            $tmp = $uploaded['tmp_name'][$i];
+            $name = basename($uploaded['name'][$i]);
+            $dest = getConfig('paths.uploads', 'uploads') . '/' . $name;
+            if (move_uploaded_file($tmp, $dest)) {
+                $videos[] = $dest;
+            }
+        }
+    }
+
+    if (count($videos) > 0) {
+        $final = processVideoChain($videos, $options);
+        header('Content-Type: video/mp4');
+        header('Content-Disposition: attachment; filename="'.basename($final).'"');
+        readfile($final);
+        exit;
+    } else {
+        echo "Nessun video caricato correttamente.";
     }
 }
 ?>
-<!doctype html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Montaggio Video Automatico</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="assets/css/style.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎬 Montaggio Video Automatico</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 20px auto; }
+        .upload-container { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 5px; }
+        input[type="file"], input[type="number"], button { margin: 10px 0; padding: 10px; width: 100%; max-width: 400px; }
+        button { background: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #45a049; }
+    </style>
 </head>
-<body class="bg-light">
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-    <div class="container">
-      <a class="navbar-brand" href="#">VideoAssembly</a>
+<body>
+    <h1>🎬 Montaggio Video Automatico</h1>
+    <div class="upload-container">
+        <form method="POST" enctype="multipart/form-data">
+            <label>Seleziona i video (multipli):</label>
+            <input type="file" name="videos[]" multiple accept="video/*">
+            <label>Durata desiderata (minuti):</label>
+            <input type="number" name="duration" value="3" min="1">
+            <button type="submit">Carica e Monta</button>
+        </form>
     </div>
-  </nav>
-
-  <main class="container my-5">
-    <div class="row justify-content-center">
-      <div class="col-md-8">
-        <div class="card shadow-sm">
-          <div class="card-body">
-            <h1 class="card-title mb-4 text-center">Montaggio Video Automatico</h1>
-
-            <?php if ($error): ?>
-              <div class="alert alert-danger"><?= htmlspecialchars($error) ?></div>
-            <?php endif; ?>
-
-            <form method="post" enctype="multipart/form-data" class="needs-validation" novalidate>
-              <div class="mb-3">
-                <label for="video" class="form-label">Seleziona video</label>
-                <input class="form-control" type="file" id="video" name="video" accept="video/*" required>
-                <div class="invalid-feedback">Devi caricare un file video.</div>
-              </div>
-              <div class="mb-4">
-                <label for="duration" class="form-label">Durata desiderata (minuti)</label>
-                <input type="number" class="form-control" id="duration" name="duration" min="1" max="30" value="3" required>
-                <div class="invalid-feedback">Inserisci un numero tra 1 e 30.</div>
-              </div>
-              <button type="submit" class="btn btn-primary w-100">Carica e Monta</button>
-            </form>
-
-          </div>
-        </div>
-      </div>
-    </div>
-  </main>
-
-  <footer class="bg-white text-center py-3 border-top">
-    <small>© <?= date('Y') ?> VideoAssembly. Tutti i diritti riservati.</small>
-  </footer>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script>
-    (function () {
-      'use strict'
-      var forms = document.querySelectorAll('.needs-validation')
-      Array.prototype.slice.call(forms)
-        .forEach(function (form) {
-          form.addEventListener('submit', function (event) {
-            if (!form.checkValidity()) {
-              event.preventDefault()
-              event.stopPropagation()
-            }
-            form.classList.add('was-validated')
-          }, false)
-        })
-    })()
-  </script>
 </body>
 </html>
