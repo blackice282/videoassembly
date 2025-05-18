@@ -1,59 +1,61 @@
 <?php
-// upload.php - Backend processing video assembly with real-time debug output
-
-// Disable output buffering and enable implicit flush
+// upload.php - Backend streaming real-time debug per montaggio video
+define('UPLOAD_DIR', __DIR__ . '/uploads/');
+define('PROCESSED_DIR', __DIR__ . '/processed/');
+// Headers per streaming
+header('Content-Type: text/html; charset=UTF-8');
+header('Cache-Control: no-cache');
+// Disabilita buffering di Nginx/Proxy
+header('X-Accel-Buffering: no');
+// Disabilita buffering PHP e abilita flush immediato
 while (ob_get_level() > 0) ob_end_flush();
 ob_implicit_flush(true);
 
-header('Content-Type: text/plain; charset=utf-8');
-
-echo "Ricevuti dati: " . print_r($_POST, true) . "\n";
-if (!isset($_FILES['video'])) {
-    echo "Errore: nessun file video ricevuto.\n";
-    exit;
+// Funzione di debug streaming
+function debug($msg) {
+    echo "<p>{$msg}</p>\n";
+    flush();
 }
 
-$count = count($_FILES['video']['name']);
-echo "Inizio upload di {$count} file...\n";
+// Dump dati ricevuti
+debug('Ricevuti dati: ' . print_r($_POST, true));
 
-$uploadDir = __DIR__ . '/uploads/';
-if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
-    echo "Cartella uploads creata.\n";
+debug('Inizio upload di ' . count($_FILES['videos']['name']) . ' file...');
+
+// Crea directory se non esiste
+if (!is_dir(UPLOAD_DIR)) {
+    mkdir(UPLOAD_DIR, 0755, true);
+    debug('Cartella uploads creata.');
 }
 
-$uploadedPaths = [];
-foreach ($_FILES['video']['error'] as $i => $error) {
-    $name = $_FILES['video']['name'][$i];
-    echo "Upload file {$i}: {$name}... ";
-    if ($error === UPLOAD_ERR_OK) {
-        $tmp = $_FILES['video']['tmp_name'][$i];
-        $target = $uploadDir . basename($name);
-        if (move_uploaded_file($tmp, $target)) {
-            echo "OK\n";
-            $uploadedPaths[] = $target;
-        } else {
-            echo "Errore spostamento.\n";
-        }
+// Carica i file video
+$files = $_FILES['videos'];
+$total = count($files['name']);
+for ($i = 0; $i < $total; $i++) {
+    $name = $files['name'][$i];
+    debug("Upload file {$i}: {$name}...");
+    if (move_uploaded_file($files['tmp_name'][$i], UPLOAD_DIR . $name)) {
+        debug('OK');
     } else {
-        echo "Errore codice {$error}.\n";
+        debug('ERRORE');
     }
 }
 
-echo "Montaggio in corso...\n";
-// --- QUI inserisci la logica di montaggio video ---
-// esempio: chiamata a script esterno o funzione PHP
-// per ora simuliamo con sleep
-sleep(2);
-echo "Montaggio completato.\n";
+debug('Montaggio in corso...');
 
-// Genera URL di download finale
-// Assumendo che il file montato sia in processed/video_final.mp4
-$url = (isset($_SERVER['HTTP_HOST']) ? (isset($_SERVER['HTTPS']) && 
-        strtolower($_SERVER['HTTPS']) !== 'off' ? 'https' : 'http') .
-    '://' . $_SERVER['HTTP_HOST'] : '') . 
-    dirname($_SERVER['SCRIPT_NAME']) . "/processed/video_final.mp4";
+// Simula o richiama qui la funzione di montaggio
+// include 'video_assembly.php';
+// $montageSuccess = assembleVideos(UPLOAD_DIR, PROCESSED_DIR, $_POST['duration'], $_POST['instructions']);
+$montageSuccess = true; // placeholder
 
-echo "URL finale: {$url}\n";
+if ($montageSuccess) {
+    debug('Montaggio completato.');
+    // Assumiamo nome output fisso
+    $finalName = 'video_final.mp4';
+    $url = dirname($_SERVER['REQUEST_URI']) . '/processed/' . $finalName;
+    debug("URL finale: <a href=\"{$url}\" target=\"_blank\">{$url}</a>");
+} else {
+    debug('Errore nel montaggio.');
+}
 
 exit;
