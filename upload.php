@@ -1,18 +1,16 @@
 <?php
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['video'])) {
-    $uploadDir = __DIR__ . '/uploads/';
-    if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-
-    $file = $_FILES['video'];
-    $targetPath = $uploadDir . basename($file['name']);
-
-    if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-        echo json_encode(['success' => true, 'path' => 'uploads/' . basename($file['name'])]);
-    } else {
-        http_response_code(500);
-        echo json_encode(['success' => false, 'error' => 'Upload failed']);
-    }
-} else {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Invalid request']);
+// upload.php
+header('Content-Type: text/plain');
+function logDebug($msg) {
+    echo $msg . "\n";
+    ob_flush();
+    flush();
 }
+
+logDebug("Ricevuti dati: " . print_r($_POST, true));
+logDebug("Inizio upload di " . count($_FILES['videos']['name']) . " file...");
+// Qui sposti i file, avvii FFmpeg, ecc., usi logDebug() per ogni passo
+// Al termine:
+logDebug("Montaggio completato.");
+logDebug("URL finale: " . $url);
+?>
