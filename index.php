@@ -8,6 +8,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Montaggio Video Automatico</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        .hidden { display: none; }
+        .debug-log { background: #f9f9f9; border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: scroll; white-space: pre-wrap; font-family: monospace; }
+        #message { margin-bottom: 10px; font-weight: bold; }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -32,37 +37,51 @@
             </form>
             <section id="response" class="hidden">
                 <h2>Risultato</h2>
-                <div id="message"></div>
+                <div id="message">Elaborazione in corso...</div>
                 <pre id="debugLog" class="debug-log"></pre>
             </section>
         </main>
     </div>
     <script>
-    document.getElementById('montaggioForm').addEventListener('submit', async function(e) {
+    document.getElementById('montaggioForm').addEventListener('submit', function(e) {
         e.preventDefault();
         const form = e.target;
         const data = new FormData(form);
         const responseEl = document.getElementById('response');
         const messageEl = document.getElementById('message');
         const debugEl = document.getElementById('debugLog');
-        responseEl.classList.add('hidden');
+        // show response section
+        responseEl.classList.remove('hidden');
+        // reset message and debug
         messageEl.textContent = 'Elaborazione in corso...';
         debugEl.textContent = '';
-        responseEl.classList.remove('hidden');
-        try {
-            const res = await fetch(form.action, { method: 'POST', body: data });
-            const result = await res.json();
-            if (result.success) {
-                messageEl.innerHTML = `<a href="${result.path}" target="_blank">Scarica video montato</a>`;
-            } else {
-                messageEl.textContent = result.error || 'Errore durante il caricamento.';
+        // stream response
+        fetch(form.action, { method: 'POST', body: data }).then(res => {
+            if (!res.body) throw new Error('Streaming non supportato');
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            // clear initial message
+            messageEl.textContent = '';
+            function read() {
+                reader.read().then(({done, value}) => {
+                    if (done) {
+                        messageEl.textContent = 'Elaborazione completata.';
+                        return;
+                    }
+                    const chunk = decoder.decode(value, { stream: true });
+                    debugEl.textContent += chunk;
+                    debugEl.scrollTop = debugEl.scrollHeight;
+                    read();
+                }).catch(err => {
+                    messageEl.textContent = 'Errore durante il debug.';
+                    console.error(err);
+                });
             }
-            if (result.debug && Array.isArray(result.debug)) {
-                debugEl.textContent = result.debug.join("\n");
-            }
-        } catch (err) {
+            read();
+        }).catch(err => {
             messageEl.textContent = 'Errore di rete o server.';
-        }
+            console.error(err);
+        });
     });
     </script>
 </body>
