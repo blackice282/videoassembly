@@ -33,6 +33,7 @@
             <section id="response" class="hidden">
                 <h2>Risultato</h2>
                 <div id="message"></div>
+                <pre id="debugLog" class="debug-log"></pre>
             </section>
         </main>
     </div>
@@ -43,8 +44,10 @@
         const data = new FormData(form);
         const responseEl = document.getElementById('response');
         const messageEl = document.getElementById('message');
+        const debugEl = document.getElementById('debugLog');
         responseEl.classList.add('hidden');
         messageEl.textContent = 'Elaborazione in corso...';
+        debugEl.textContent = '';
         responseEl.classList.remove('hidden');
         try {
             const res = await fetch(form.action, { method: 'POST', body: data });
@@ -53,6 +56,9 @@
                 messageEl.innerHTML = `<a href="${result.path}" target="_blank">Scarica video montato</a>`;
             } else {
                 messageEl.textContent = result.error || 'Errore durante il caricamento.';
+            }
+            if (result.debug && Array.isArray(result.debug)) {
+                debugEl.textContent = result.debug.join("\n");
             }
         } catch (err) {
             messageEl.textContent = 'Errore di rete o server.';
