@@ -1,40 +1,65 @@
 <?php
 // config.php
 
+// Configurazione sistema VideoAssembly
 $CONFIG = [
-    // Percorsi assoluti alle cartelle (verranno create automaticamente)
     'paths' => [
-        'uploads' => __DIR__ . '/uploads',
-        'temp'    => __DIR__ . '/temp',
-        'output'  => __DIR__ . '/output',
+        'uploads' => 'uploads',
+        'temp' => 'temp',
+        'output' => 'output'
     ],
-
-    // Parametri FFmpeg
     'ffmpeg' => [
-        'video_codec'   => 'libx264',
-        'audio_codec'   => 'aac',
-        'video_quality' => '23',   // CRF
+        'video_codec' => 'libx264',
+        'audio_codec' => 'aac',
+        'video_quality' => '23',
+        'resolution' => '720x1280',
     ],
-
-    // Sistema
+    'detection' => [
+        'min_duration' => 1,
+        'max_gap' => 2,
+        'frame_rate' => 1,
+        'confidence' => 0.5,
+    ],
+    'transitions' => [
+        'enabled' => true,
+        'type' => 'fade',
+        'duration' => 0.5,
+    ],
     'system' => [
-        'max_upload_size' => 200,  // MB per file
-    ],
+        'cleanup_temp' => true,
+        'keep_original' => true,
+        'max_upload_size' => 500,
+        'base_url' => 'https://videoassembly-ok.onrender.com',
+        'debug' => false,
+    ]
 ];
 
-/**
- * Restituisce una chiave di configurazione (es. 'paths.uploads')
- */
-function getConfig(string $key, $default = null) {
+// Funzione per ottenere configurazione
+function getConfig($key, $default = null) {
     global $CONFIG;
-    $parts = explode('.', $key);
-    $v = $CONFIG;
-    foreach ($parts as $p) {
-        if (is_array($v) && array_key_exists($p, $v)) {
-            $v = $v[$p];
-        } else {
+    $keys = explode('.', $key);
+    $value = $CONFIG;
+    foreach ($keys as $k) {
+        if (!isset($value[$k])) {
             return $default;
         }
+        $value = $value[$k];
     }
-    return $v;
+    return $value;
 }
+
+// Funzione per impostare configurazione
+function setConfig($key, $value) {
+    global $CONFIG;
+    $keys = explode('.', $key);
+    $lastKey = array_pop($keys);
+    $current = &$CONFIG;
+    foreach ($keys as $k) {
+        if (!isset($current[$k])) {
+            $current[$k] = [];
+        }
+        $current = &$current[$k];
+    }
+    $current[$lastKey] = $value;
+}
+?>
