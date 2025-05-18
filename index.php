@@ -12,6 +12,7 @@
         .hidden { display: none; }
         .debug-log { background: #f9f9f9; border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: scroll; white-space: pre-wrap; font-family: monospace; }
         #message { margin-bottom: 10px; font-weight: bold; }
+        #message a { color: #007bff; text-decoration: none; }
     </style>
 </head>
 <body>
@@ -50,27 +51,39 @@
         const responseEl = document.getElementById('response');
         const messageEl = document.getElementById('message');
         const debugEl = document.getElementById('debugLog');
+        
         // show response section
         responseEl.classList.remove('hidden');
         // reset message and debug
         messageEl.textContent = 'Elaborazione in corso...';
         debugEl.textContent = '';
-        // stream response
+
         fetch(form.action, { method: 'POST', body: data }).then(res => {
             if (!res.body) throw new Error('Streaming non supportato');
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
-            // clear initial message
             messageEl.textContent = '';
+
             function read() {
                 reader.read().then(({done, value}) => {
                     if (done) {
-                        messageEl.textContent = 'Elaborazione completata.';
+                        // if no download link found yet
+                        if (!messageEl.textContent) {
+                            messageEl.textContent = 'Elaborazione completata, verificare log per dettagli.';
+                        }
                         return;
                     }
                     const chunk = decoder.decode(value, { stream: true });
                     debugEl.textContent += chunk;
                     debugEl.scrollTop = debugEl.scrollHeight;
+
+                    // cerca URL finale
+                    const match = chunk.match(/URL finale: (.+)/);
+                    if (match) {
+                        const url = match[1].trim();
+                        messageEl.innerHTML = `<a href="${url}" target="_blank">Scarica video montato</a>`;
+                    }
+
                     read();
                 }).catch(err => {
                     messageEl.textContent = 'Errore durante il debug.';
