@@ -24,7 +24,8 @@
             <form id="montaggioForm" action="upload.php" method="POST" enctype="multipart/form-data">
                 <div class="form-group">
                     <label for="video">Seleziona video (mp4):</label>
-                    <input type="file" id="video" name="videos[]" accept="video/mp4" multiple required>
+                    <!-- Cambiato name per corrispondere a upload.php -->
+                    <input type="file" id="video" name="video[]" accept="video/mp4" multiple required>
                 </div>
                 <div class="form-group">
                     <label for="duration">Durata desiderata (minuti):</label>
@@ -47,19 +48,29 @@
     document.getElementById('montaggioForm').addEventListener('submit', function(e) {
         e.preventDefault();
         const form = e.target;
-        const data = new FormData(form);
+        const data = new FormData();
+        
+        // Aggiungi tutti i video correttamente
+        const files = document.getElementById('video').files;
+        for (let i = 0; i < files.length; i++) {
+            data.append('video[]', files[i]);
+        }
+        // Aggiungi gli altri campi
+        data.append('duration', document.getElementById('duration').value);
+        data.append('instructions', document.getElementById('instructions').value);
+
         const responseEl = document.getElementById('response');
         const messageEl = document.getElementById('message');
         const debugEl = document.getElementById('debugLog');
         
-        // show response section
+        // mostra sezione risultato
         responseEl.classList.remove('hidden');
-        // reset message and debug
+        // resetta messaggi
         messageEl.textContent = 'Elaborazione in corso...';
         debugEl.textContent = '';
 
         fetch(form.action, { method: 'POST', body: data }).then(res => {
-            if (!res.body) throw new Error('Streaming non supportato');
+            if (!res.body) throw new Error('Streaming non supportato dal server');
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             messageEl.textContent = '';
@@ -67,9 +78,8 @@
             function read() {
                 reader.read().then(({done, value}) => {
                     if (done) {
-                        // if no download link found yet
                         if (!messageEl.textContent) {
-                            messageEl.textContent = 'Elaborazione completata, verificare log per dettagli.';
+                            messageEl.textContent = 'Elaborazione completata, controlla i log.';
                         }
                         return;
                     }
@@ -77,13 +87,11 @@
                     debugEl.textContent += chunk;
                     debugEl.scrollTop = debugEl.scrollHeight;
 
-                    // cerca URL finale
                     const match = chunk.match(/URL finale: (.+)/);
                     if (match) {
                         const url = match[1].trim();
                         messageEl.innerHTML = `<a href="${url}" target="_blank">Scarica video montato</a>`;
                     }
-
                     read();
                 }).catch(err => {
                     messageEl.textContent = 'Errore durante il debug.';
