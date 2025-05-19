@@ -5,6 +5,7 @@ require_once 'ffmpeg_script.php';
 require_once 'people_detection.php';
 require_once 'transitions.php';
 require_once 'duration_editor.php';
+
 // Audio di sottofondo
 $musicaDir = __DIR__ . '/musica';
 $filesAudio = glob($musicaDir.'/*.mp3');
@@ -17,7 +18,15 @@ foreach ($filesAudio as $f) {
         $divertenti[] = $b;
     }
 }
-
+// Scelta audio background
+$backgroundAudio = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['background_file'])) {
+    $bg = basename($_POST['background_file']);
+    $path = __DIR__ . '/musica/' . $bg;
+    if (file_exists($path)) {
+        $backgroundAudio = $path;
+    }
+}
 
 function createUploadsDir() {
     if (!file_exists(getConfig('paths.uploads', 'uploads'))) {
@@ -34,18 +43,18 @@ function convertToTs($inputFile, $outputTs) {
 }
 
 function concatenateTsFiles($tsFiles, $outputFile) {
+    global $backgroundAudio;
     $tsList = implode('|', $tsFiles);
-    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$outputFile\"";
+    if ($backgroundAudio) {
+        $cmd = "ffmpeg -i \"concat:$tsList\" -stream_loop -1 -i " . escapeshellarg($backgroundAudio)
+             . " -filter_complex \"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]\""
+             . " -map 0:v -map \"[aout]\" -c:v libx264 -c:a aac -shortest " . escapeshellarg($outputFile);
+    } else {
+        $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc " . escapeshellarg($outputFile);
+    }
     shell_exec($cmd);
 }
 
-function cleanupTempFiles($files, $keepOriginals = false) {
-    foreach ($files as $file) {
-        if (file_exists($file) && (!$keepOriginals || strpos($file, 'uploads/') === false)) {
-            unlink($file);
-        }
-    }
-}
 
 // Gestione dell'invio del form
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -355,22 +364,137 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             max-width: 150px;
         }
     </style>
+    <script>
+        // Mostra/nascondi le opzioni di adattamento della durata
+        document.addEventListener('DOMContentLoaded', function() {
+            const durationSelect = document.querySelector('select[name="duration"]');
+            const durationMethodOptions = document.getElementById('durationMethodOptions');
+            
+            // Funzione per mostrare/nascondere le opzioni in base alla selezione
+            function toggleDurationOptions() {
+                if (durationSelect.value === '0') {
+                    durationMethodOptions.style.display = 'none';
+                } else {
+                    durationMethodOptions.style.display = 'block';
+                }
+            }
+            
+            // Inizializza lo stato al caricamento
+            toggleDurationOptions();
+            
+            // Aggiungi event listener per cambi futuri
+            durationSelect.addEventListener('change', toggleDurationOptions);
+        });
+    </script>
+</head>
+<body>
+    <h1>🎬 VideoAssembly - Montaggio Video Automatico</h1>
     
-
+    <div class="upload-container">
+        <form method="POST" enctype="multipart/form-data">
+            <h3>Carica i tuoi video</h3>
+            <input type="file" name="files[]" multiple accept="video/mp4,video/quicktime,video/x-msvideo">
+            
+            <div class="options">
+                <div class="option-group">
+                    <h3>Modalità di elaborazione:</h3>
+                    <label>
+                        <input type="radio" name="mode" value="simple" checked> 
+                        Montaggio semplice (concatena i video)
+                    </label>
+                    <label>
+                        <input type="radio" name="mode" value="detect_people"> 
+                        Rilevamento persone (estrae solo parti con persone in movimento)
+                    </label>
+                </div>
+                
+                <div class="option-group">
+                    <h3>Durata del video finale:</h3>
+                    <div class="duration-controls">
+                        <select name="duration">
+                            <option value="0">Durata originale</option>
+                            <option value="1">1 minuto</option>
+                            <option value="3">3 minuti</option>
+                            <option value="5">5 minuti</option>
+                            <option value="10">10 minuti</option>
+                            <option value="15">15 minuti</option>
+                            <option value="30">30 minuti</option>
+                        </select>
+                    </div>
+                    
+                    <div id="durationMethodOptions" style="margin-top: 10px; display: none;">
+                        <h4>Metodo di adattamento:</h4>
+                        <label>
+                            <input type="radio" name="duration_method" value="select_interactions" checked> 
+                            Interazioni tra persone (seleziona scene con più persone che interagiscono)
+                        </label>
+                        <label>
+                            <input type="radio" name="duration_method" value="select"> 
+                            Selezione migliori (sceglie solo le scene più importanti)
+                        </label>
+                        <label>
+                            <input type="radio" name="duration_method" value="trim"> 
+                            Taglio proporzionale (mantiene tutte le scene, riduce la loro durata)
+                        </label>
+                        <label>
+                            <input type="radio" name="duration_method" value="speed"> 
+                            Modifica velocità (accelera il video per mantenere tutte le scene)
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+                            <div class="option-group">
+                    <h3>Audio di sottofondo:</h3>
+                    <label for="background_file">Seleziona file:</label>
+                    <select id="background_file" name="background_file">
+                        <optgroup label="Emozionale">
+                            <?php foreach ($emozionali as $a): ?>
+                                <option value="<?= htmlspecialchars($a) ?>"><?= htmlspecialchars($a) ?></option>
+                            <?php endforeach; ?>
+                        </optgroup>
+                        <optgroup label="Divertente">
+                            <?php foreach ($divertenti as $a): ?>
+                                <option value="<?= htmlspecialchars($a) ?>"><?= htmlspecialchars($a) ?></option>
+                            <?php endforeach; ?>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <h3>Anteprima audio:</h3>
+                    <audio controls id="audioPreview">
+                        <source id="audioSource" src="" type="audio/mpeg">
+                        Il tuo browser non supporta l'elemento audio.
+                    </audio>
+                </div>
+<button type="submit">Carica e Monta</button>
+        </form>
+    </div>
+    
+    <div class="instructions">
+        <h3>📋 Istruzioni</h3>
+        <ol>
+            <li><strong>Carica i tuoi video</strong> - Seleziona uno o più file video dal tuo dispositivo</li>
+            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento automatico di scene interessanti</li>
+            <li><strong>Imposta la durata</strong> - Scegli quanto dovrà durare il video finale (opzionale)</li>
+            <li><strong>Avvia il montaggio</strong> - Clicca su "Carica e Monta" e attendi il completamento</li>
+            <li><strong>Scarica il risultato</strong> - Una volta completato, scarica il video finale</li>
+        </ol>
+        <p><em>Nota: L'elaborazione è ottimizzata per la velocità. Per risultati ancora migliori con video più lunghi, considera di caricare video più brevi o di limitare la durata finale.</em></p>
+    </div>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  var select = document.getElementById('background_file');
-  var audio = document.getElementById('audioPreview');
-  var source = document.getElementById('audioSource');
-  if (!select || !audio || !source) return;
-  function updatePreview() {
-    source.src = 'musica/' + select.value;
-    audio.load();
-  }
-  select.addEventListener('change', updatePreview);
-  updatePreview();
+    var bgSelect = document.getElementById('background_file');
+    var audio = document.getElementById('audioPreview');
+    var source = document.getElementById('audioSource');
+    if (!bgSelect || !audio || !source) return;
+    function updatePreview() {
+        source.src = 'musica/' + bgSelect.value;
+        audio.load();
+    }
+    bgSelect.addEventListener('change', updatePreview);
+    updatePreview();
 });
 </script>
-
 </body>
 </html>
