@@ -10,15 +10,8 @@ function processVideo($inputTs, $outputMp4, $outputDir, $baseUrl) {
         $config['codec']['audio_codec'],
         escapeshellarg($outputMp4)
     );
-    exec($cmd, $output, $return);
-
-    // generate thumbnail
-    $thumb = $outputDir . '/' . basename($outputMp4, '.mp4') . '.jpg';
-    $thumbCmd = sprintf(
-        'ffmpeg -i %s -ss 00:00:01 -vframes 1 %s',
-        escapeshellarg($outputMp4),
-        escapeshellarg($thumb)
-    );
-    exec($thumbCmd);
+    exec($cmd);
+    $thumb = $outputDir . '/' . basename($outputMp4,'.mp4') . '.jpg';
+    exec(sprintf('ffmpeg -i %s -ss 00:00:01 -vframes 1 %s', escapeshellarg($outputMp4), escapeshellarg($thumb)));
 }
 ?>
