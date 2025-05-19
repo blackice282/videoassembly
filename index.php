@@ -6,6 +6,28 @@ require_once 'people_detection.php';
 require_once 'transitions.php';
 require_once 'duration_editor.php';
 
+
+// Audio di sottofondo
+$musicaDir = __DIR__ . '/musica';
+$filesAudio = glob($musicaDir . '/*.mp3');
+$emozionali = [];
+$divertenti = [];
+foreach ($filesAudio as $f) {
+    $b = basename($f);
+    if (stripos($b, 'emozionale') === 0) {
+        $emozionali[] = $b;
+    } elseif (stripos($b, 'divertente') === 0) {
+        $divertenti[] = $b;
+    }
+}
+$backgroundAudio = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['background_file'])) {
+    $bg = basename($_POST['background_file']);
+    $path = __DIR__ . '/musica/' . $bg;
+    if (file_exists($path)) {
+        $backgroundAudio = $path;
+    }
+}
 function createUploadsDir() {
     if (!file_exists(getConfig('paths.uploads', 'uploads'))) {
         mkdir(getConfig('paths.uploads', 'uploads'), 0777, true);
@@ -21,8 +43,14 @@ function convertToTs($inputFile, $outputTs) {
 }
 
 function concatenateTsFiles($tsFiles, $outputFile) {
+    global $backgroundAudio;
     $tsList = implode('|', $tsFiles);
-    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$outputFile\"";
+    if ($backgroundAudio) {
+        // Concatenazione con audio di sottofondo in loop e mix
+        $cmd = "ffmpeg -i \"concat:$tsList\" -stream_loop -1 -i " . escapeshellarg($backgroundAudio) . " -filter_complex \"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]\" -map 0:v -map [aout] -c:v libx264 -c:a aac -shortest " . escapeshellarg($outputFile);
+    } else {
+        $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc " . escapeshellarg($outputFile);
+    }
     shell_exec($cmd);
 }
 
@@ -370,6 +398,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     
     <div class="upload-container">
         <form method="POST" enctype="multipart/form-data">
+
+    <div>
+      <label for="background_file">Audio di sottofondo:</label>
+      <select id="background_file" name="background_file">
+        <optgroup label="Emozionale">
+          <?php foreach ($emozionali as $a): ?>
+            <option value="<?= htmlspecialchars($a) ?>"><?= htmlspecialchars($a) ?></option>
+          <?php endforeach; ?>
+        </optgroup>
+        <optgroup label="Divertente">
+          <?php foreach ($divertenti as $a): ?>
+            <option value="<?= htmlspecialchars($a) ?>"><?= htmlspecialchars($a) ?></option>
+          <?php endforeach; ?>
+        </optgroup>
+      </select>
+    </div>
+    <div>
+      <label>Anteprima audio:</label>
+      <audio controls id="audioPreview">
+        <source id="audioSource" src="" type="audio/mpeg">
+        Il tuo browser non supporta l'elemento audio.
+      </audio>
+    </div>
+
             <h3>Carica i tuoi video</h3>
             <input type="file" name="files[]" multiple accept="video/mp4,video/quicktime,video/x-msvideo">
             
@@ -437,5 +489,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </ol>
         <p><em>Nota: L'elaborazione è ottimizzata per la velocità. Per risultati ancora migliori con video più lunghi, considera di caricare video più brevi o di limitare la durata finale.</em></p>
     </div>
+
+<script>
+  document.getElementById('background_file').addEventListener('change', function() {
+    var src = 'musica/' + this.value;
+    var audio = document.getElementById('audioPreview');
+    audio.src = src;
+    audio.load();
+  });
+</script>
 </body>
 </html>
