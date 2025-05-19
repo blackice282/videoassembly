@@ -1,4 +1,5 @@
 <?php
+// File: ffmpeg_script.php
 function processVideo($inputTs, $outputMp4, $outputDir, $baseUrl) {
     global $config;
     $cmd = sprintf(

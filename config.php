@@ -1,4 +1,5 @@
 <?php
+// File: config.php
 return [
     'paths' => [
         'upload_dir'   => __DIR__ . '/uploads/',
@@ -7,7 +8,7 @@ return [
     ],
     'system' => [
         'max_upload_size' => 200 * 1024 * 1024,
-        'base_url'        => 'https://your-app-name.onrender.com',
+        'base_url'        => getenv('BASE_URL') ?: 'https://your-app-name.onrender.com',
     ],
     'codec' => [
         'video_codec' => 'libx264',
@@ -25,6 +26,15 @@ return [
         'enabled'    => true,
         'type'       => 'fade',
         'duration'   => 1.0,
+    ],
+    'storage' => [
+        's3_bucket'   => getenv('S3_BUCKET'),
+        's3_region'   => getenv('S3_REGION'),
+        's3_key'      => getenv('S3_KEY'),
+        's3_secret'   => getenv('S3_SECRET'),
+    ],
+    'logging' => [
+        'file' => __DIR__ . '/logs/app.log',
     ],
 ];
 ?>
