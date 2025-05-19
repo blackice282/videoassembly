@@ -12,7 +12,26 @@ function process_video($videoPath) {
     $thumbnailPath = "$tempDir/thumbnail.jpg";
 
     // Comando per generare il video elaborato
-    $cmd = "ffmpeg -i " . escapeshellarg($videoPath) . " -c:v libx264 -c:a aac -strict experimental " . escapeshellarg($outputVideoPath);
+    // Recupera l’audio di sottofondo scelto
+    $backgroundAudio = null;
+    if (!empty($_POST['background_file'])) {
+        $bg = basename($_POST['background_file']);
+        $p = __DIR__ . '/musica/' . $bg;
+        if (file_exists($p)) {
+            $backgroundAudio = $p;
+        }
+    }
+    // Comando per generare il video elaborato (mix audio di sottofondo se presente)
+    if ($backgroundAudio) {
+        $cmd = "ffmpeg -i " . escapeshellarg($videoPath)
+             . " -stream_loop -1 -i " . escapeshellarg($backgroundAudio)
+             . " -filter_complex \"[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]\""
+             . " -map 0:v -map \"[aout]\""
+             . " -c:v libx264 -c:a aac -shortest " . escapeshellarg($outputVideoPath);
+    } else {
+        $cmd = "ffmpeg -i " . escapeshellarg($videoPath)
+             . " -c:v libx264 -c:a aac -strict experimental " . escapeshellarg($outputVideoPath);
+    }
     exec($cmd, $output, $returnCode);
 
     if ($returnCode !== 0) {
