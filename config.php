@@ -16,7 +16,7 @@ return [
         'crf'         => 23,
     ],
     'detection' => [
-        'min_duration' => 1.5,    // seconds
+        'min_duration' => 1.5, // seconds
     ],
 ];
 ?>

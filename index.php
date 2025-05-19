@@ -1,49 +1,27 @@
 <?php
 $config = require __DIR__ . '/config.php';
 require __DIR__ . '/helpers.php';
-require __DIR__ . '/people_detection.php';
-require __DIR__ . '/ffmpeg_script.php';
 
-// Show form on GET
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-    echo <<<HTML
-<!DOCTYPE html>
-<html lang="it">
-<head><meta charset="UTF-8"><title>Montaggio Video AI</title></head>
-<body>
-<h1>Montaggio Video AI</h1>
-<form method="post" enctype="multipart/form-data">
-  <input type="file" name="videos[]" accept="video/*" multiple><br><br>
-  <label><input type="checkbox" name="detect_people"> Rilevamento persone</label><br><br>
-  <button type="submit">Avvia Montaggio</button>
-</form>
-</body></html>
-HTML;
+    include 'result.php';
     exit;
 }
 
-// Handle POST
+require __DIR__ . '/people_detection.php';
+require __DIR__ . '/ffmpeg_script.php';
+
 ensureDir($config['paths']['upload_dir']);
 ensureDir($config['paths']['temp_dir']);
 ensureDir($config['paths']['output_dir']);
 
-$uploaded = handleUploads($config['paths']['upload_dir'], $config['system']['max_upload_size']);
-if (empty($uploaded)) {
-    http_response_code(400);
-    echo 'Nessun file caricato';
-    exit;
-}
+$videos = handleUploads($config['paths']['upload_dir'], $config['system']['max_upload_size']);
+if (empty($videos)) { http_response_code(400); echo 'Nessun file caricato'; exit; }
 
-if (!empty($_POST['detect_people'])) {
-    $segments = detectMovingPeople($uploaded, $config, $config['paths']['temp_dir']);
-} else {
-    $segments = array_map(fn($f) => convertToTs($f, $config), $uploaded);
-}
+$jobId = uniqid('job_');
+saveStatus($jobId, 'queued', 0);
 
-$combinedTs = concatTsSegments($segments, $config['paths']['temp_dir']);
-$outputMp4 = $config['paths']['output_dir'] . 'final_' . time() . '.mp4';
-processVideo($combinedTs, $outputMp4, $config['paths']['output_dir']);
-cleanupTemp(array_merge($segments, [$combinedTs]), $config['paths']['temp_dir']);
+exec(sprintf('php worker.php %s > /dev/null 2>&1 &', escapeshellarg($jobId)));
 
-echo "<p>Video creato: <a href='{$config['system']['base_url']}/output/" . basename($outputMp4) . "'>Scarica qui</a></p>";
+header('Content-Type: application/json');
+echo json_encode(['jobId' => $jobId]);
 ?>
