@@ -355,137 +355,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             max-width: 150px;
         }
     </style>
-    <script>
-        // Mostra/nascondi le opzioni di adattamento della durata
-        document.addEventListener('DOMContentLoaded', function() {
-            const durationSelect = document.querySelector('select[name="duration"]');
-            const durationMethodOptions = document.getElementById('durationMethodOptions');
-            
-            // Funzione per mostrare/nascondere le opzioni in base alla selezione
-            function toggleDurationOptions() {
-                if (durationSelect.value === '0') {
-                    durationMethodOptions.style.display = 'none';
-                } else {
-                    durationMethodOptions.style.display = 'block';
-                }
-            }
-            
-            // Inizializza lo stato al caricamento
-            toggleDurationOptions();
-            
-            // Aggiungi event listener per cambi futuri
-            durationSelect.addEventListener('change', toggleDurationOptions);
-        });
-    </script>
-</head>
-<body>
-    <h1>🎬 VideoAssembly - Montaggio Video Automatico</h1>
     
-    <div class="upload-container">
-        <form method="POST" enctype="multipart/form-data">
-            <h3>Carica i tuoi video</h3>
-            <input type="file" name="files[]" multiple accept="video/mp4,video/quicktime,video/x-msvideo">
-            
-            <div class="options">
-                <div class="option-group">
-                    <h3>Modalità di elaborazione:</h3>
-                    <label>
-                        <input type="radio" name="mode" value="simple" checked> 
-                        Montaggio semplice (concatena i video)
-                    </label>
-                    <label>
-                        <input type="radio" name="mode" value="detect_people"> 
-                        Rilevamento persone (estrae solo parti con persone in movimento)
-                    </label>
-                </div>
-                
-                <div class="option-group">
-                    <h3>Durata del video finale:</h3>
-                    <div class="duration-controls">
-                        <select name="duration">
-                            <option value="0">Durata originale</option>
-                            <option value="1">1 minuto</option>
-                            <option value="3">3 minuti</option>
-                            <option value="5">5 minuti</option>
-                            <option value="10">10 minuti</option>
-                            <option value="15">15 minuti</option>
-                            <option value="30">30 minuti</option>
-                        </select>
-                    </div>
-                    
-                    <div id="durationMethodOptions" style="margin-top: 10px; display: none;">
-                        <h4>Metodo di adattamento:</h4>
-                        <label>
-                            <input type="radio" name="duration_method" value="select_interactions" checked> 
-                            Interazioni tra persone (seleziona scene con più persone che interagiscono)
-                        </label>
-                        <label>
-                            <input type="radio" name="duration_method" value="select"> 
-                            Selezione migliori (sceglie solo le scene più importanti)
-                        </label>
-                        <label>
-                            <input type="radio" name="duration_method" value="trim"> 
-                            Taglio proporzionale (mantiene tutte le scene, riduce la loro durata)
-                        </label>
-                        <label>
-                            <input type="radio" name="duration_method" value="speed"> 
-                            Modifica velocità (accelera il video per mantenere tutte le scene)
-                        </label>
-                    </div>
-                </div>
-            </div>
-            
-    <!-- Selezione audio di sottofondo -->
-    <div class="option-group">
-      <label for="background_file"><strong>Audio di sottofondo:</strong></label>
-      <select id="background_file" name="background_file">
-        <optgroup label="Emozionale">
-          <?php foreach ($emozionali as $a): ?>
-            <option value="<?= htmlspecialchars($a) ?>"><?= htmlspecialchars($a) ?></option>
-          <?php endforeach; ?>
-        </optgroup>
-        <optgroup label="Divertente">
-          <?php foreach ($divertenti as $a): ?>
-            <option value="<?= htmlspecialchars($a) ?>"><?= htmlspecialchars($a) ?></option>
-          <?php endforeach; ?>
-        </optgroup>
-      </select>
-    </div>
-
-    <!-- Anteprima audio -->
-    <div class="option-group">
-      <label><strong>Anteprima audio:</strong></label>
-      <audio controls id="audioPreview">
-        <source id="audioSource" src="" type="audio/mpeg">
-        Il tuo browser non supporta l'elemento audio.
-      </audio>
-    </div>
-
-            <button type="submit">Carica e Monta</button>
-        </form>
-    </div>
-    
-    <div class="instructions">
-        <h3>📋 Istruzioni</h3>
-        <ol>
-            <li><strong>Carica i tuoi video</strong> - Seleziona uno o più file video dal tuo dispositivo</li>
-            <li><strong>Scegli la modalità</strong> - Concatenazione semplice o rilevamento automatico di scene interessanti</li>
-            <li><strong>Imposta la durata</strong> - Scegli quanto dovrà durare il video finale (opzionale)</li>
-            <li><strong>Avvia il montaggio</strong> - Clicca su "Carica e Monta" e attendi il completamento</li>
-            <li><strong>Scarica il risultato</strong> - Una volta completato, scarica il video finale</li>
-        </ol>
-        <p><em>Nota: L'elaborazione è ottimizzata per la velocità. Per risultati ancora migliori con video più lunghi, considera di caricare video più brevi o di limitare la durata finale.</em></p>
-    </div>
 <script>
   document.getElementById('background_file').addEventListener('change', function() {
-    var src = 'musica/' + this.value;
+    var file = this.value;
+    var path = 'musica/' + file;
+    var source = document.getElementById('audioSource');
     var audio = document.getElementById('audioPreview');
-    audio.src = src;
+    source.src = path;
     audio.load();
   });
   // Carica un'anteprima iniziale
   var sel = document.getElementById('background_file');
   if (sel.value) sel.dispatchEvent(new Event('change'));
 </script>
+
 </body>
 </html>
