@@ -35,8 +35,13 @@ function applyTransitions($segments, $transCfg, $tempDir) {
     $filterComplex = implode(";", $filters);
     $last = 'v' . (count($segments)-1);
     $outTs = $tempDir . '/transitions.ts';
-    $cmd = sprintf("ffmpeg%s -filter_complex "%s" -map "[%s]" -c:v copy %s",
-        $inputs, $filterComplex, $last, escapeshellarg($outTs));
+    $cmd = sprintf(
+        "ffmpeg%s -filter_complex "%s" -map "[%s]" -c:v copy %s",
+        $inputs,
+        $filterComplex,
+        $last,
+        escapeshellarg($outTs)
+    );
     exec($cmd);
     return $outTs;
 }
