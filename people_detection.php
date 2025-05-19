@@ -1,5 +1,5 @@
 <?php
-function detectMovingPeople($files, $cfg, $tempDir) {
+function detectMovingPeople($files, $config, $tempDir) {
     ensureDir($tempDir);
     $segments = [];
     foreach ($files as $file) {
@@ -7,14 +7,14 @@ function detectMovingPeople($files, $cfg, $tempDir) {
             "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " 
             . escapeshellarg($file)
         ));
-        $count = ceil($duration / $cfg['min_duration']);
+        $count = ceil($duration / $config['detection']['min_duration']);
         for ($i = 0; $i < $count; $i++) {
             $seg = $tempDir . basename($file) . "_{$i}.ts";
             exec(sprintf(
                 'ffmpeg -ss %.2f -i %s -t %.2f -c copy %s',
-                $i * $cfg['min_duration'],
+                $i * $config['detection']['min_duration'],
                 escapeshellarg($file),
-                $cfg['min_duration'],
+                $config['detection']['min_duration'],
                 escapeshellarg($seg)
             ));
             $segments[] = $seg;

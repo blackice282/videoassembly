@@ -1,5 +1,5 @@
 FROM php:8.2-cli
-RUN apt-get update && apt-get install -y ffmpeg git libpng-dev libjpeg-dev libfreetype6-dev \
+RUN apt-get update && apt-get install -y ffmpeg libpng-dev libjpeg-dev libfreetype6-dev \
     && docker-php-ext-install mysqli gd \
     && rm -rf /var/lib/apt/lists/*
 COPY . /usr/src/app

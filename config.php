@@ -17,9 +17,6 @@ return [
     ],
     'detection' => [
         'min_duration' => 1.5,    // seconds
-        'max_gap'      => 0.5,    // seconds
-        'frame_rate'   => 24,     // fps
-        'confidence'   => 0.25,   // threshold
     ],
 ];
 ?>

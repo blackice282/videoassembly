@@ -11,6 +11,7 @@ function processVideo($inputTs, $outputMp4, $outputDir) {
         escapeshellarg($outputMp4)
     );
     exec($cmd);
+    // thumbnail
     $thumb = $outputDir . basename($outputMp4, '.mp4') . '.jpg';
     exec(sprintf(
         'ffmpeg -i %s -ss 00:00:01 -vframes 1 %s',
