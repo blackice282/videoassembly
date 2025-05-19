@@ -356,18 +356,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     </style>
     
+
 <script>
-  document.getElementById('background_file').addEventListener('change', function() {
-    var file = this.value;
-    var path = 'musica/' + file;
-    var source = document.getElementById('audioSource');
-    var audio = document.getElementById('audioPreview');
-    source.src = path;
+document.addEventListener('DOMContentLoaded', function() {
+  var select = document.getElementById('background_file');
+  var audio = document.getElementById('audioPreview');
+  var source = document.getElementById('audioSource');
+  if (!select || !audio || !source) return;
+  function updatePreview() {
+    source.src = 'musica/' + select.value;
     audio.load();
-  });
-  // Carica un'anteprima iniziale
-  var sel = document.getElementById('background_file');
-  if (sel.value) sel.dispatchEvent(new Event('change'));
+  }
+  select.addEventListener('change', updatePreview);
+  updatePreview();
+});
 </script>
 
 </body>
