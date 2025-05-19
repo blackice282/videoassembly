@@ -7,8 +7,7 @@ function concatenateTsSegments($segments, $tempDir) {
     }
     fclose($fp);
     $outTs = $tempDir . '/combined.ts';
-    $cmd = sprintf("ffmpeg -f concat -safe 0 -i %s -c copy %s",
-        escapeshellarg($listFile), escapeshellarg($outTs));
+    $cmd = 'ffmpeg -f concat -safe 0 -i ' . escapeshellarg($listFile) . ' -c copy ' . escapeshellarg($outTs);
     exec($cmd);
     return $outTs;
 }
@@ -17,31 +16,25 @@ function applyTransitions($segments, $transCfg, $tempDir) {
     if (count($segments) < 2) {
         return concatenateTsSegments($segments, $tempDir);
     }
-    // Build inputs
     $inputs = '';
-    foreach ($segments as $i => $seg) {
-        $inputs .= sprintf(" -i %s", escapeshellarg($seg));
+    foreach ($segments as $seg) {
+        $inputs .= ' -i ' . escapeshellarg($seg);
     }
-    // Build xfade filters
     $filters = [];
     $duration = $transCfg['duration'];
     $offset = 0;
     foreach ($segments as $i => $seg) {
         if ($i === 0) continue;
-        $filters[] = sprintf("[%d:v][%d:v]xfade=transition=%s:duration=%.2f:offset=%.2f[v%d]",
-            $i-1, $i, $transCfg['type'], $duration, $offset, $i);
+        $filters[] = "[{$i}:v][{$i}:v]xfade=transition={$transCfg['type']}:duration={$duration}:offset={$offset}[v{$i}]";
         $offset += $duration;
     }
-    $filterComplex = implode(";", $filters);
-    $last = 'v' . (count($segments)-1);
+    $filterComplex = implode(';', $filters);
+    $last = 'v' . (count($segments) - 1);
     $outTs = $tempDir . '/transitions.ts';
-    $cmd = sprintf(
-        "ffmpeg%s -filter_complex "%s" -map "[%s]" -c:v copy %s",
-        $inputs,
-        $filterComplex,
-        $last,
-        escapeshellarg($outTs)
-    );
+    $cmd = 'ffmpeg' . $inputs
+         . ' -filter_complex "' . $filterComplex . '"'
+         . ' -map "[' . $last . ']"'
+         . ' -c:v copy ' . escapeshellarg($outTs);
     exec($cmd);
     return $outTs;
 }
