@@ -1,10 +1,8 @@
 <?php
-require __DIR__ . '/config.php';
+$config = require __DIR__ . '/config.php';
 require __DIR__ . '/helpers.php';
 require __DIR__ . '/people_detection.php';
 require __DIR__ . '/ffmpeg_script.php';
-
-$config = require __DIR__ . '/config.php';
 
 // GET: show form
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -39,15 +37,12 @@ if (empty($uploaded)) {
 if (!empty($_POST['detect_people'])) {
     $segments = detectMovingPeople($uploaded, $config['detection'], $config['paths']['temp_dir']);
 } else {
-    $segments = array_map(fn($f)=>convertToTs($f,$config), $uploaded);
+    $segments = array_map(fn($f) => convertToTs($f, $config), $uploaded);
 }
 
 $combinedTs = concatTsSegments($segments, $config['paths']['temp_dir']);
-
 $outputMp4 = $config['paths']['output_dir'] . 'final_' . time() . '.mp4';
 processVideo($combinedTs, $outputMp4, $config['paths']['output_dir']);
-
-// Cleanup
 cleanupTemp(array_merge($segments, [$combinedTs]), $config['paths']['temp_dir']);
 
 echo "Video creato: " . $config['system']['base_url'] . '/output/' . basename($outputMp4);

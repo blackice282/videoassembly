@@ -40,7 +40,8 @@ function concatTsSegments($segments, $tempDir) {
     $list = $tempDir . '/concat_list.txt';
     $fp = fopen($list, 'w');
     foreach ($segments as $seg) {
-        fwrite($fp, "file '" . str_replace("'", "\'", $seg) . "'\n");
+        fwrite($fp, "file '" . str_replace("'", "\'", $seg) . "'
+");
     }
     fclose($fp);
     $out = $tempDir . '/combined.ts';
