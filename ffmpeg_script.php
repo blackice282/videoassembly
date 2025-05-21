@@ -1,50 +1,58 @@
 <?php
-$audioFile = $_POST['audio'] ?? null;
-$start = $_POST['start_time'] ?? 0;
-$end = $_POST['end_time'] ?? 0;
-$volume = $_POST['volume'] ?? 1;
+// Recupera l'audio selezionato dal form
+$selectedAudio = isset($_POST['audio']) ? trim($_POST['audio']) : '';
+$startTime = isset($_POST['start_time']) ? floatval($_POST['start_time']) : 0;
+$endTime = isset($_POST['end_time']) ? floatval($_POST['end_time']) : 0;
+$volume = isset($_POST['volume']) ? floatval($_POST['volume']) : 1.0;
 
-if (!$audioFile) {
-    die("❌ Nessun file audio selezionato.");
+$processedAudioPath = '';
+$audioAvailable = false;
+
+// Se è stato selezionato un file audio valido
+if ($selectedAudio !== '') {
+    $audioPath = __DIR__ . '/musica/' . basename($selectedAudio);
+
+    if (file_exists($audioPath)) {
+        $audioAvailable = true;
+        $tempAudioName = uniqid('audio_') . '.mp3';
+        $processedAudioPath = __DIR__ . '/temp/' . $tempAudioName;
+
+        // Costruzione del comando FFmpeg per taglio e volume
+        $filters = [];
+        if ($volume !== 1.0) {
+            $filters[] = "volume={$volume}";
+        }
+
+        $filterOption = $filters ? '-af "' . implode(',', $filters) . '"' : '';
+        $startOption = $startTime > 0 ? "-ss $startTime" : '';
+        $endOption = ($endTime > 0 && $endTime > $startTime) ? "-to $endTime" : '';
+
+        $cmd = "ffmpeg -y $startOption -i " . escapeshellarg($audioPath) . " $endOption $filterOption -c:a aac " . escapeshellarg($processedAudioPath);
+        exec($cmd);
+    }
 }
 
-$audioPath = __DIR__ . '/musica/' . basename($audioFile);
-if (!file_exists($audioPath)) {
-    die("❌ File audio non trovato.");
-}
+// Dopo che hai creato $outputFinal (il video finale senza audio),
+// qui sotto aggiungi l'audio selezionato
 
-$outputDir = __DIR__ . '/output';
-if (!file_exists($outputDir)) {
-    mkdir($outputDir, 0755, true);
-}
+if ($audioAvailable && isset($outputFinal) && file_exists($outputFinal)) {
+    $finalOutputWithAudio = str_replace('.mp4', '_with_audio.mp4', $outputFinal);
 
-// 1. Taglia l’audio (se end > start)
-$cutAudio = $audioPath;
-$cutCmd = '';
-if ($end > 0 && $end > $start) {
-    $cutAudio = "$outputDir/cut_" . uniqid() . ".mp3";
-    $cutCmd = "ffmpeg -y -i \"$audioPath\" -ss $start -to $end -c copy \"$cutAudio\"";
-    exec($cutCmd);
-}
+    $cmdMix = "ffmpeg -y -i " . escapeshellarg($outputFinal) .
+              " -i " . escapeshellarg($processedAudioPath) .
+              " -shortest -c:v copy -c:a aac " . escapeshellarg($finalOutputWithAudio);
 
-// 2. Regola il volume (se diverso da 1.0)
-$finalAudio = $cutAudio;
-if ($volume != 1) {
-    $finalAudio = "$outputDir/vol_" . uniqid() . ".mp3";
-    $volCmd = "ffmpeg -y -i \"$cutAudio\" -filter:a \"volume=$volume\" \"$finalAudio\"";
-    exec($volCmd);
-}
+    exec($cmdMix);
 
-// 3. Montaggio con video
-$inputVideo = __DIR__ . '/output_video.mp4'; // da aggiornare se necessario
-$outputFinal = $outputDir . '/video_finale_' . uniqid() . '.mp4';
+    // Sostituisce l'output originale con quello con audio
+    if (file_exists($finalOutputWithAudio)) {
+        unlink($outputFinal);
+        rename($finalOutputWithAudio, $outputFinal);
+    }
 
-$cmd = "ffmpeg -y -i \"$inputVideo\" -i \"$finalAudio\" -shortest -c:v copy -c:a aac \"$outputFinal\"";
-exec($cmd, $out, $res);
-
-if ($res === 0) {
-    echo "✅ Video creato con successo: <a href='output/" . basename($outputFinal) . "' target='_blank'>" . basename($outputFinal) . "</a>";
-} else {
-    echo "❌ Errore nel montaggio. Codice: $res";
+    // Pulizia audio temporaneo
+    if (file_exists($processedAudioPath)) {
+        unlink($processedAudioPath);
+    }
 }
 ?>
