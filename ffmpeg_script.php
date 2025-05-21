@@ -1,4 +1,6 @@
 <?php
+// ffmpeg_script.php
+
 function process_video($videoPath, $backgroundAudio = null) {
     $processId = uniqid();
     $tempDir = "temp/$processId";
@@ -8,11 +10,15 @@ function process_video($videoPath, $backgroundAudio = null) {
     $thumbnailPath = "$tempDir/thumbnail.jpg";
 
     if ($backgroundAudio && file_exists($backgroundAudio)) {
+        // Comando avanzato: aggiunge volume, fade-in, fade-out, auto-cut
         $cmd = "ffmpeg -i " . escapeshellarg($videoPath) .
                " -i " . escapeshellarg($backgroundAudio) .
-               " -map 0:v:0 -map 1:a:0 -shortest -c:v libx264 -c:a aac -strict experimental " .
+               " -filter_complex " .
+               "\"[1:a]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st=999:d=2[aud];[0:v]copy[v];[v][aud]concat=n=1:v=1:a=1[outv][outa]\" " .
+               " -map \"[outv]\" -map \"[outa]\" -shortest -c:v libx264 -c:a aac -strict experimental " .
                escapeshellarg($outputVideoPath);
     } else {
+        // Nessuna musica di sottofondo
         $cmd = "ffmpeg -i " . escapeshellarg($videoPath) .
                " -c:v libx264 -c:a aac -strict experimental " .
                escapeshellarg($outputVideoPath);
@@ -27,6 +33,7 @@ function process_video($videoPath, $backgroundAudio = null) {
         ];
     }
 
+    // Genera miniatura del video finale
     $thumbnailCmd = "ffmpeg -i " . escapeshellarg($outputVideoPath) .
                     " -ss 00:00:03 -vframes 1 " . escapeshellarg($thumbnailPath);
     exec($thumbnailCmd);
