@@ -1,46 +1,50 @@
 <?php
-// ffmpeg_script.php
+$audioFile = $_POST['audio'] ?? null;
+$start = $_POST['start_time'] ?? 0;
+$end = $_POST['end_time'] ?? 0;
+$volume = $_POST['volume'] ?? 1;
 
-function process_video($videoPath) {
-    // Crea una directory temporanea
-    $processId = uniqid();
-    $tempDir = "temp/$processId";
-    if (!file_exists($tempDir)) mkdir($tempDir);
+if (!$audioFile) {
+    die("❌ Nessun file audio selezionato.");
+}
 
-    // Percorsi per i file elaborati
-    $outputVideoPath = "$tempDir/processed_video.mp4";
-    $thumbnailPath = "$tempDir/thumbnail.jpg";
+$audioPath = __DIR__ . '/musica/' . basename($audioFile);
+if (!file_exists($audioPath)) {
+    die("❌ File audio non trovato.");
+}
 
-    // Comando per generare il video elaborato
-    $cmd = "ffmpeg -i " . escapeshellarg($videoPath) . " -c:v libx264 -c:a aac -strict experimental " . escapeshellarg($outputVideoPath);
-    exec($cmd, $output, $returnCode);
+$outputDir = __DIR__ . '/output';
+if (!file_exists($outputDir)) {
+    mkdir($outputDir, 0755, true);
+}
 
-    if ($returnCode !== 0) {
-        return [
-            'success' => false,
-            'message' => 'Errore nell\'elaborazione del video: ' . implode("\n", $output)
-        ];
-    }
+// 1. Taglia l’audio (se end > start)
+$cutAudio = $audioPath;
+$cutCmd = '';
+if ($end > 0 && $end > $start) {
+    $cutAudio = "$outputDir/cut_" . uniqid() . ".mp3";
+    $cutCmd = "ffmpeg -y -i \"$audioPath\" -ss $start -to $end -c copy \"$cutAudio\"";
+    exec($cutCmd);
+}
 
-    // Genera una miniatura del video
-    $thumbnailCmd = "ffmpeg -i " . escapeshellarg($outputVideoPath) . " -ss 00:00:03 -vframes 1 " . escapeshellarg($thumbnailPath);
-    exec($thumbnailCmd, $thumbnailOutput, $thumbnailReturnCode);
+// 2. Regola il volume (se diverso da 1.0)
+$finalAudio = $cutAudio;
+if ($volume != 1) {
+    $finalAudio = "$outputDir/vol_" . uniqid() . ".mp3";
+    $volCmd = "ffmpeg -y -i \"$cutAudio\" -filter:a \"volume=$volume\" \"$finalAudio\"";
+    exec($volCmd);
+}
 
-    if ($thumbnailReturnCode !== 0) {
-        return [
-            'success' => false,
-            'message' => 'Errore nel generare la miniatura'
-        ];
-    }
+// 3. Montaggio con video
+$inputVideo = __DIR__ . '/output_video.mp4'; // da aggiornare se necessario
+$outputFinal = $outputDir . '/video_finale_' . uniqid() . '.mp4';
 
-    // Path per i file elaborati (per il download)
-    $downloadVideoUrl = "https://your-app-name.onrender.com/$tempDir/processed_video.mp4";
-    $thumbnailUrl = "https://your-app-name.onrender.com/$tempDir/thumbnail.jpg";
+$cmd = "ffmpeg -y -i \"$inputVideo\" -i \"$finalAudio\" -shortest -c:v copy -c:a aac \"$outputFinal\"";
+exec($cmd, $out, $res);
 
-    return [
-        'success' => true,
-        'video_url' => $downloadVideoUrl,
-        'thumbnail_url' => $thumbnailUrl
-    ];
+if ($res === 0) {
+    echo "✅ Video creato con successo: <a href='output/" . basename($outputFinal) . "' target='_blank'>" . basename($outputFinal) . "</a>";
+} else {
+    echo "❌ Errore nel montaggio. Codice: $res";
 }
 ?>
