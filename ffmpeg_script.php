@@ -13,7 +13,7 @@ function process_video($videoPath, $backgroundAudio = null) {
                " -filter_complex " .
                "\"[1:a]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st=999:d=2[aud];" .
                "[0:v]copy[v];[v][aud]concat=n=1:v=1:a=1[outv][outa]\" " .
-               "-map \"[outv]\" -map \"[outa]\" -shortest -c:v libx264 -c:a aac -strict experimental " .
+               " -map \"[outv]\" -map \"[outa]\" -shortest -c:v libx264 -c:a aac -strict experimental " .
                escapeshellarg($outputVideoPath);
     } else {
         $cmd = "ffmpeg -i " . escapeshellarg($videoPath) .
@@ -26,7 +26,8 @@ function process_video($videoPath, $backgroundAudio = null) {
     if (!file_exists($outputVideoPath)) {
         return [
             'success' => false,
-            'message' => 'Errore: il file di output non è stato generato.'
+            'message' => 'Errore: il file video non è stato generato.',
+            'cmd' => $cmd
         ];
     }
 
