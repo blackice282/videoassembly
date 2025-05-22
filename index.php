@@ -59,26 +59,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     $selectedAudio = isset($_POST['audio']) ? trim($_POST['audio']) : '';
     $audioPath = $selectedAudio ? realpath(__DIR__ . "/musica/" . $selectedAudio) : null;
-    function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
-    $tsList = implode('|', $tsFiles);
-    $tempMerged = "temp/merged_" . uniqid() . ".mp4";
-    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$tempMerged\"";
-    shell_exec($cmd);
-
-    if ($audioPath && file_exists($audioPath)) {
-        $result = process_video($tempMerged, $audioPath);
-        if ($result['success']) {
-            copy($result['video_url'], $outputFile);
-        } else {
-            copy($tempMerged, $outputFile);
-        }
-    } else {
-        copy($tempMerged, $outputFile);
-    }
-
-    unlink($tempMerged);
-}
-
+   
     if ($mode === 'detect_people') {
         $deps = checkDependencies();
         if (!$deps['ffmpeg']) {
