@@ -19,25 +19,65 @@ function convertToTs($inputFile, $outputTs) {
     shell_exec($cmd);
 }
 
-function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
-    $tsList = implode('|', $tsFiles);
-    $tempMerged = "temp/merged_" . uniqid() . ".mp4";
-    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$tempMerged\"";
-    shell_exec($cmd);
+--- index.php
+@@
+-function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
+-    $tsList = implode('|', $tsFiles);
+-    $tempMerged = "temp/merged_" . uniqid() . ".mp4";
+-    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$tempMerged\"";
+-    shell_exec($cmd);
+-
+-    if ($audioPath && file_exists($audioPath)) {
+-        $result = process_video($tempMerged, $audioPath);
+-        if ($result['success']) {
+-            copy($result['video_url'], $outputFile);
+-        } else {
+-            copy($tempMerged, $outputFile);
+-        }
+-    } else {
+-        copy($tempMerged, $outputFile);
+-    }
+-
+-    unlink($tempMerged);
+-}
++function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
++    global $targetDuration;
++
++    // Crea un file lista per il demuxer concat
++    $listFile = tempnam(sys_get_temp_dir(), 'concat_') . '.txt';
++    $fp = fopen($listFile, 'w');
++    foreach ($tsFiles as $ts) {
++        fwrite($fp, "file '" . str_replace("'", "'\\\\''", $ts) . "'\n");
++    }
++    fclose($fp);
++
++    // Prepara l'opzione durata (in secondi), se specificata
++    $durationOption = !empty($targetDuration) ? ' -t ' . intval($targetDuration) : '';
++
++    if ($audioPath && file_exists($audioPath)) {
++        // Mix audio di sottofondo in loop
++        $cmd = sprintf(
++            'ffmpeg -f concat -safe 0 -i %s -stream_loop -1 -i %s -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]" -map 0:v -map "[aout]" -c:v libx264 -c:a aac%s %s',
++            escapeshellarg($listFile),
++            escapeshellarg($audioPath),
++            $durationOption,
++            escapeshellarg($outputFile)
++        );
++    } else {
++        // Concatenazione semplice senza audio di sottofondo
++        $cmd = sprintf(
++            'ffmpeg -f concat -safe 0 -i %s -c:v libx264 -c:a aac%s %s',
++            escapeshellarg($listFile),
++            $durationOption,
++            escapeshellarg($outputFile)
++        );
++    }
++
++    // Esegui e pulisci il file temporaneo
++    shell_exec($cmd);
++    @unlink($listFile);
++}
 
-    if ($audioPath && file_exists($audioPath)) {
-        $result = process_video($tempMerged, $audioPath);
-        if ($result['success']) {
-            copy($result['video_url'], $outputFile);
-        } else {
-            copy($tempMerged, $outputFile);
-        }
-    } else {
-        copy($tempMerged, $outputFile);
-    }
-
-    unlink($tempMerged);
-}
 
 function cleanupTempFiles($files, $keepOriginals = false) {
     foreach ($files as $file) {
