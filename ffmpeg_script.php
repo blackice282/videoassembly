@@ -11,9 +11,8 @@ function process_video($videoPath, $backgroundAudio = null) {
         $cmd = "ffmpeg -i " . escapeshellarg($videoPath) .
                " -i " . escapeshellarg($backgroundAudio) .
                " -filter_complex " .
-               "\"[1:a]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st=999:d=2[aud];" .
-               "[0:v]copy[v];[v][aud]concat=n=1:v=1:a=1[outv][outa]\" " .
-               " -map \"[outv]\" -map \"[outa]\" -shortest -c:v libx264 -c:a aac -strict experimental " .
+               "\"[1:a]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st=999:d=2[aud]\" " .
+               "-map 0:v -map \"[aud]\" -shortest -c:v libx264 -c:a aac -strict experimental " .
                escapeshellarg($outputVideoPath);
     } else {
         $cmd = "ffmpeg -i " . escapeshellarg($videoPath) .
