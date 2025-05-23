@@ -167,17 +167,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     // 2) Montaggio finale
     if ($mode === 'detect_people' && count($segments_to_process) > 0) {
-        // come sopra: genera .ts per ogni segmento e concatena
-        $segment_ts = [];
-        foreach ($segments_to_process as $seg) {
-            $ts = pathinfo($seg, PATHINFO_FILENAME) . '.ts';
-            $tsPath = pathinfo($seg, PATHINFO_DIRNAME) . '/' . $ts;
-            convertToTs($seg, $tsPath);
-            if (file_exists($tsPath)) $segment_ts[] = $tsPath;
+    // Genera .ts per ogni segmento **nella cartella uploads**
+    $segment_ts = [];
+    $uploadDir  = getConfig('paths.uploads','uploads');
+    foreach ($segments_to_process as $seg) {
+        $tsPath = $uploadDir . '/'
+                . pathinfo($seg, PATHINFO_FILENAME) . '.ts';
+        convertToTs($seg, $tsPath);
+        if (file_exists($tsPath)) {
+            $segment_ts[] = $tsPath;
         }
-        $outDir = getConfig('paths.uploads','uploads');
-        $out    = "$outDir/video_montato_" . date('Ymd_His') . ".mp4";
-        concatenateTsFiles($segment_ts, $out, $audioPath);
+    }
+    // Output finale dentro uploads
+    $out = $uploadDir . '/video_montato_' . date('Ymd_His') . '.mp4';
+    concatenateTsFiles($segment_ts, $out, $audioPath);
 
     } elseif (count($uploaded_ts_files) > 1) {
         // concatenazione semplice
