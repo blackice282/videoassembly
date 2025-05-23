@@ -15,69 +15,60 @@ function createUploadsDir() {
 }
 
 function convertToTs($inputFile, $outputTs) {
-    $cmd = "ffmpeg -i \"$inputFile\" -c copy -bsf:v h264_mp4toannexb -f mpegts \"$outputTs\"";
+    $cmd = sprintf(
+        'ffmpeg -i %s -c copy -bsf:v h264_mp4toannexb -f mpegts %s',
+        escapeshellarg($inputFile),
+        escapeshellarg($outputTs)
+    );
     shell_exec($cmd);
 }
+/**
+ * Concatena segmenti .ts, applica durata massima e opzionale mix audio di sottofondo.
+ *
+ * @param array  $tsFiles     Array di percorsi *.ts da concatenare
+ * @param string $outputFile  Percorso del file MP4 di output
+ * @param string $audioPath   Percorso dell'audio di sottofondo (facoltativo)
+ */
+function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
+    global $targetDuration;
 
---- index.php
-@@
--function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
--    $tsList = implode('|', $tsFiles);
--    $tempMerged = "temp/merged_" . uniqid() . ".mp4";
--    $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$tempMerged\"";
--    shell_exec($cmd);
--
--    if ($audioPath && file_exists($audioPath)) {
--        $result = process_video($tempMerged, $audioPath);
--        if ($result['success']) {
--            copy($result['video_url'], $outputFile);
--        } else {
--            copy($tempMerged, $outputFile);
--        }
--    } else {
--        copy($tempMerged, $outputFile);
--    }
--
--    unlink($tempMerged);
--}
-+function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
-+    global $targetDuration;
-+
-+    // Crea un file lista per il demuxer concat
-+    $listFile = tempnam(sys_get_temp_dir(), 'concat_') . '.txt';
-+    $fp = fopen($listFile, 'w');
-+    foreach ($tsFiles as $ts) {
-+        fwrite($fp, "file '" . str_replace("'", "'\\\\''", $ts) . "'\n");
-+    }
-+    fclose($fp);
-+
-+    // Prepara l'opzione durata (in secondi), se specificata
-+    $durationOption = !empty($targetDuration) ? ' -t ' . intval($targetDuration) : '';
-+
-+    if ($audioPath && file_exists($audioPath)) {
-+        // Mix audio di sottofondo in loop
-+        $cmd = sprintf(
-+            'ffmpeg -f concat -safe 0 -i %s -stream_loop -1 -i %s -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]" -map 0:v -map "[aout]" -c:v libx264 -c:a aac%s %s',
-+            escapeshellarg($listFile),
-+            escapeshellarg($audioPath),
-+            $durationOption,
-+            escapeshellarg($outputFile)
-+        );
-+    } else {
-+        // Concatenazione semplice senza audio di sottofondo
-+        $cmd = sprintf(
-+            'ffmpeg -f concat -safe 0 -i %s -c:v libx264 -c:a aac%s %s',
-+            escapeshellarg($listFile),
-+            $durationOption,
-+            escapeshellarg($outputFile)
-+        );
-+    }
-+
-+    // Esegui e pulisci il file temporaneo
-+    shell_exec($cmd);
-+    @unlink($listFile);
-+}
+    // 1) Creo un file lista per concat demuxer
+    $listFile = tempnam(sys_get_temp_dir(), 'concat_') . '.txt';
+    $fp = fopen($listFile, 'w');
+    foreach ($tsFiles as $ts) {
+        fwrite($fp, "file '" . str_replace("'", "'\\\\''", $ts) . "'\n");
+    }
+    fclose($fp);
 
+    // 2) Durata massima (in secondi), se specificata
+    $durationOption = $targetDuration > 0
+        ? ' -t ' . intval($targetDuration)
+        : '';
+
+    // 3) Costruisco il comando FFmpeg
+    if ($audioPath && file_exists($audioPath)) {
+        $cmd = sprintf(
+            'ffmpeg -f concat -safe 0 -i %s -stream_loop -1 -i %s '
+          . '-filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]" '
+          . '-map 0:v -map "[aout]" -c:v libx264 -c:a aac%s %s',
+            escapeshellarg($listFile),
+            escapeshellarg($audioPath),
+            $durationOption,
+            escapeshellarg($outputFile)
+        );
+    } else {
+        $cmd = sprintf(
+            'ffmpeg -f concat -safe 0 -i %s -c:v libx264 -c:a aac%s %s',
+            escapeshellarg($listFile),
+            $durationOption,
+            escapeshellarg($outputFile)
+        );
+    }
+
+    // 4) Eseguo e pulisco
+    shell_exec($cmd);
+    @unlink($listFile);
+}
 
 function cleanupTempFiles($files, $keepOriginals = false) {
     foreach ($files as $file) {
@@ -92,9 +83,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     set_time_limit(300);
 
     $mode = $_POST['mode'] ?? 'simple';
-    $targetDuration = (isset($_POST['duration']) && is_numeric($_POST['duration'])) ? intval($_POST['duration']) * 60 : 0;
-    $selectedAudio = isset($_POST['audio']) ? trim($_POST['audio']) : '';
-    $audioPath = $selectedAudio ? realpath(__DIR__ . "/musica/" . $selectedAudio) : null;
+ // Durata massima in secondi (0 = originale)
+    $targetDuration = (!empty($_POST['duration']) && is_numeric($_POST['duration']))
+        ? intval($_POST['duration']) * 60
+        : 0;
+
+    // Percorso assoluto dell’audio di sottofondo (se selezionato)
+    if (!empty($_POST['audio'])) {
+        $sel = basename($_POST['audio']);
+        $audioPath = __DIR__ . '/musica/' . $sel;
+        if (!file_exists($audioPath)) {
+            $audioPath = null;
+        }
+    } else {
+        $audioPath = null;
+    }
 
     if ($mode === 'detect_people') {
         $deps = checkDependencies();
