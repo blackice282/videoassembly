@@ -201,11 +201,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
        . "<a href=\"{$relativeDir}/{$fileName}\" download>Scarica il video</a>";
 
     // 4) Pulizia
-    cleanupTempFiles(
+   cleanupTempFiles(
         array_merge($uploaded_ts_files, $segments_to_process),
         getConfig('system.keep_original', true)
     );
-}
+}   // ← chiude l'if(isset($_FILES))
+}   // ← chiude l'if($_SERVER["REQUEST_METHOD"] == "POST")
 ?>
 <!DOCTYPE html>
 <html lang="it">
