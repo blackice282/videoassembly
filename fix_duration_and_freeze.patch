@@ -17,19 +17,18 @@
 -        );
 -    }
 +    global $targetDuration;
-+    // Create a concat list file for seamless concatenation
++    // Genera un file lista per concat demuxer
 +    $listFile = tempnam(sys_get_temp_dir(), 'concat_') . '.txt';
 +    $fp = fopen($listFile, 'w');
 +    foreach ($tsFiles as $ts) {
-+        fwrite($fp, "file '" . str_replace("'", "'\\''", $ts) . "'\n");
++        fwrite($fp, "file '" . str_replace("'", "'\\\\''", $ts) . "'\n");
 +    }
 +    fclose($fp);
 +
-+    // Duration option if specified
++    // Applica durata massima se specificata
 +    $durationOption = (!empty($targetDuration) ? ' -t ' . intval($targetDuration) : '');
 +
 +    if ($backgroundAudio) {
-+        // Mix background audio in loop with video
 +        $cmd = sprintf(
 +            'ffmpeg -f concat -safe 0 -i %s -stream_loop -1 -i %s -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=3[aout]" -map 0:v -map "[aout]" -c:v libx264 -c:a aac%s %s',
 +            escapeshellarg($listFile),
@@ -38,7 +37,6 @@
 +            escapeshellarg($outputFile)
 +        );
 +    } else {
-+        // Simple concat without background audio
 +        $cmd = sprintf(
 +            'ffmpeg -f concat -safe 0 -i %s -c:v libx264 -c:a aac%s %s',
 +            escapeshellarg($listFile),
