@@ -65,8 +65,20 @@ function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
         );
     }
 
-    // 4) Eseguo e pulisco
-    shell_exec($cmd);
+        // 4) Eseguo il comando, catturo output e codice di ritorno
+exec($cmd . ' 2>&1', $ffmpegOutput, $returnVar);
+
+    // Se FFmpeg è fallito, mostro l’errore e interrompo
+    if ($returnVar !== 0) {
+        echo "<div style='background: #f8d7da; padding: 10px; margin: 10px;'>";
+        echo "<strong>❌ Errore durante l’esecuzione di FFmpeg:</strong><br>";
+        echo nl2br(htmlspecialchars(implode("\n", $ffmpegOutput)));
+        echo "</div>";
+        @unlink($listFile);
+        exit;
+    }
+
+    // 5) Pulisco il file lista temporaneo
     @unlink($listFile);
 }
 
@@ -110,74 +122,91 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 
-    if (isset($_FILES['files'])) {
-        $uploaded_files = [];
-        $uploaded_ts_files = [];
-        $segments_to_process = [];
+       if (isset($_FILES['files'])) {
+    $uploaded_files      = [];
+    $uploaded_ts_files   = [];
+    $segments_to_process = [];
 
-        $total_files = count($_FILES['files']['name']);
-        echo "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
-        echo "<strong>🔄 Elaborazione video...</strong><br>";
+    // 1) Caricamento e conversione in .ts
+    $total_files = count($_FILES['files']['name']);
+    echo "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+    echo "<strong>🔄 Elaborazione video...</strong><br>";
 
-        for ($i = 0; $i < $total_files; $i++) {
-            if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
-                $tmp_name = $_FILES['files']['tmp_name'][$i];
-                $name = basename($_FILES['files']['name'][$i]);
-                $destination = getConfig('paths.uploads', 'uploads') . '/' . $name;
+    for ($i = 0; $i < $total_files; $i++) {
+        if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
+            $tmp_name   = $_FILES['files']['tmp_name'][$i];
+            $name       = basename($_FILES['files']['name'][$i]);
+            $dest       = getConfig('paths.uploads','uploads') . '/' . $name;
 
-                if (move_uploaded_file($tmp_name, $destination)) {
-                    echo "✅ File caricato: $name<br>";
-                    $uploaded_files[] = $destination;
+            if (move_uploaded_file($tmp_name, $dest)) {
+                echo "✅ File caricato: $name<br>";
+                $uploaded_files[] = $dest;
 
-                    if ($mode === 'detect_people') {
-                        echo "🔍 Analisi del video: $name<br>";
-                        $detectionResult = detectMovingPeople($destination);
-                        if ($detectionResult['success']) {
-                            foreach ($detectionResult['segments'] as $segment) {
-                                $segments_to_process[] = $segment;
-                            }
-                        } else {
-                            echo "⚠️ " . $detectionResult['message'] . "<br>";
+                if ($mode === 'detect_people') {
+                    echo "🔍 Analisi del video: $name<br>";
+                    $res = detectMovingPeople($dest);
+                    if ($res['success']) {
+                        foreach ($res['segments'] as $seg) {
+                            $segments_to_process[] = $seg;
                         }
                     } else {
-                        $tsFile = getConfig('paths.uploads', 'uploads') . '/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
-                        convertToTs($destination, $tsFile);
-                        $uploaded_ts_files[] = $tsFile;
+                        echo "⚠️ {$res['message']}<br>";
                     }
                 } else {
-                    echo "❌ Errore nel salvataggio del file: $name<br>";
+                    $ts = pathinfo($name, PATHINFO_FILENAME) . '.ts';
+                    $tsPath = getConfig('paths.uploads','uploads') . '/' . $ts;
+                    convertToTs($dest, $tsPath);
+                    $uploaded_ts_files[] = $tsPath;
                 }
+            } else {
+                echo "❌ Errore nel salvataggio del file: $name<br>";
             }
         }
-        echo "</div>";
-
-        if ($mode === 'detect_people' && count($segments_to_process) > 0) {
-            $segment_ts_files = [];
-            foreach ($segments_to_process as $segment) {
-                $tsFile = pathinfo($segment, PATHINFO_DIRNAME) . '/' . pathinfo($segment, PATHINFO_FILENAME) . '.ts';
-                convertToTs($segment, $tsFile);
-                if (file_exists($tsFile)) {
-                    $segment_ts_files[] = $tsFile;
-                }
-            }
-            if (count($segment_ts_files) > 0) {
-                $outputFinal = getConfig('paths.uploads', 'uploads') . '/video_montato_' . date('Ymd_His') . '.mp4';
-                concatenateTsFiles($segment_ts_files, $outputFinal, $audioPath);
-                echo "<br><strong>✅ Video pronto:</strong> <a href='$outputFinal' download>Scarica il video</a>";
-            }
-        } else if (count($uploaded_ts_files) > 1) {
-            $outputFinal = getConfig('paths.uploads', 'uploads') . '/final_video_' . date('Ymd_His') . '.mp4';
-            concatenateTsFiles($uploaded_ts_files, $outputFinal, $audioPath);
-            echo "<br><strong>✅ Video pronto:</strong> <a href='$outputFinal' download>Scarica il video</a>";
-        } else {
-            echo "<br>⚠️ Carica almeno due video.";
-        }
-
-        cleanupTempFiles(array_merge($uploaded_ts_files, $segments_to_process), getConfig('system.keep_original', true));
     }
+    echo "</div>";
+
+    // 2) Montaggio finale
+    if ($mode === 'detect_people' && count($segments_to_process) > 0) {
+        // come sopra: genera .ts per ogni segmento e concatena
+        $segment_ts = [];
+        foreach ($segments_to_process as $seg) {
+            $ts = pathinfo($seg, PATHINFO_FILENAME) . '.ts';
+            $tsPath = pathinfo($seg, PATHINFO_DIRNAME) . '/' . $ts;
+            convertToTs($seg, $tsPath);
+            if (file_exists($tsPath)) $segment_ts[] = $tsPath;
+        }
+        $outDir = getConfig('paths.uploads','uploads');
+        $out    = "$outDir/video_montato_" . date('Ymd_His') . ".mp4";
+        concatenateTsFiles($segment_ts, $out, $audioPath);
+
+    } elseif (count($uploaded_ts_files) > 1) {
+        // concatenazione semplice
+        $outDir = getConfig('paths.uploads','uploads');
+        $out    = "$outDir/final_video_" . date('Ymd_His') . ".mp4";
+        concatenateTsFiles($uploaded_ts_files, $out, $audioPath);
+
+    } else {
+        echo "<br>⚠️ Carica almeno due video.";
+        cleanupTempFiles(
+            array_merge($uploaded_ts_files, $segments_to_process),
+            getConfig('system.keep_original', true)
+        );
+        return;
+    }
+
+   // 3) Link di download relativo
+    $fileName    = basename($out);
+    $relativeDir = getConfig('paths.uploads','uploads');
+    echo "<br><strong>✅ Video pronto:</strong> "
+       . "<a href=\"{$relativeDir}/{$fileName}\" download>Scarica il video</a>";
+
+    // 4) Pulizia
+    cleanupTempFiles(
+        array_merge($uploaded_ts_files, $segments_to_process),
+        getConfig('system.keep_original', true)
+    );
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="it">
 <head>
