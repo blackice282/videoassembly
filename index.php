@@ -166,26 +166,29 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     echo "</div>";
 
     // 2) Montaggio finale
+    $uploadDir = __DIR__ . '/' . getConfig('paths.uploads','uploads');
+
     if ($mode === 'detect_people' && count($segments_to_process) > 0) {
-    // Genera .ts per ogni segmento **nella cartella uploads**
-    $segment_ts = [];
-    $uploadDir  = getConfig('paths.uploads','uploads');
-    foreach ($segments_to_process as $seg) {
-        $tsPath = $uploadDir . '/'
-                . pathinfo($seg, PATHINFO_FILENAME) . '.ts';
-        convertToTs($seg, $tsPath);
-        if (file_exists($tsPath)) {
-            $segment_ts[] = $tsPath;
+        // genero ogni .ts dentro uploads/
+        $segment_ts = [];
+        foreach ($segments_to_process as $seg) {
+            $tsPath = $uploadDir . '/' . pathinfo($seg, PATHINFO_FILENAME) . '.ts';
+            convertToTs($seg, $tsPath);
+            if (file_exists($tsPath)) {
+                $segment_ts[] = $tsPath;
+            }
         }
-    }
-    // Output finale dentro uploads
-    $out = $uploadDir . '/video_montato_' . date('Ymd_His') . '.mp4';
-    concatenateTsFiles($segment_ts, $out, $audioPath);
+        if (empty($segment_ts)) {
+            echo "<br>⚠️ Nessun .ts generato, impossibile montare.";
+            cleanupTempFiles($segments_to_process, getConfig('system.keep_original', true));
+            return;
+        }
+        $out = $uploadDir . '/video_montato_' . date('Ymd_His') . '.mp4';
+        concatenateTsFiles($segment_ts, $out, $audioPath);
 
     } elseif (count($uploaded_ts_files) > 1) {
         // concatenazione semplice
-        $outDir = getConfig('paths.uploads','uploads');
-        $out    = "$outDir/final_video_" . date('Ymd_His') . ".mp4";
+        $out = $uploadDir . '/final_video_' . date('Ymd_His') . '.mp4';
         concatenateTsFiles($uploaded_ts_files, $out, $audioPath);
 
     } else {
@@ -197,14 +200,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         return;
     }
 
-   // 3) Link di download relativo
+    // 3) Link di download relativo
     $fileName    = basename($out);
-    $relativeDir = getConfig('paths.uploads','uploads');
+    $relativeDir = getConfig('paths.uploads','uploads'); // questa è ancora relativa, per il link HTML
     echo "<br><strong>✅ Video pronto:</strong> "
        . "<a href=\"{$relativeDir}/{$fileName}\" download>Scarica il video</a>";
 
     // 4) Pulizia
-   cleanupTempFiles(
+    cleanupTempFiles(
         array_merge($uploaded_ts_files, $segments_to_process),
         getConfig('system.keep_original', true)
     );
