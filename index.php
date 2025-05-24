@@ -104,9 +104,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             echo "⚠️ {$res['message']}<br>";
                         }
                     } else {
-                        $tsPath = getConfig('paths.uploads', 'uploads') . '/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
-                        convertToTs($destination, $tsPath);
-                        $uploaded_ts_files[] = $tsPath;
+                        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                    $tsPath = getConfig('paths.uploads','uploads') . '/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
+
+                    if (in_array($ext, ['jpg','jpeg','png','gif'])) {
+                        // è un’immagine: segmento di 3 s
+                        convertImageToTs($dest, $tsPath);
+                    } else {
+                        // è un video
+                        convertToTs($dest, $tsPath);
+                    }
+                    
+                    $uploaded_ts_files[] = $tsPath;
                     }
                 } else {
                     echo "❌ Errore nel salvataggio del file: $name<br>";
@@ -240,7 +249,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <div class="upload-container">
         <form method="POST" enctype="multipart/form-data">
             <h3>📂 Carica i tuoi video</h3>
-            <input type="file" name="files[]" multiple required>
+           <input type="file" name="files[]" multiple required accept="video/*,image/*">
 
             <div class="options">
                 <div class="option-group">
