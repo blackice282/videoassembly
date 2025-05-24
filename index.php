@@ -16,15 +16,6 @@ function createUploadsDir() {
     if (!file_exists($tmp)) mkdir($tmp, 0777, true);
 }
 
-function convertToTs($inputFile, $outputTs) {
-    $cmd = sprintf(
-        'ffmpeg -i %s -c copy -bsf:v h264_mp4toannexb -f mpegts %s',
-        escapeshellarg($inputFile),
-        escapeshellarg($outputTs)
-    );
-    shell_exec($cmd);
-}
-
 function convertImageToTs($imageFile, $outputTs) {
     $cmd = sprintf(
         'ffmpeg -loop 1 -i %s -c:v libx264 -t 3 -pix_fmt yuv420p -f mpegts %s',
