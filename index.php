@@ -105,17 +105,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         }
                     } else {
                         $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-                    $tsPath = getConfig('paths.uploads','uploads') . '/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
+                    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+$tsPath = getConfig('paths.uploads','uploads') . '/' . pathinfo($name, PATHINFO_FILENAME) . '.ts';
+if (in_array($ext, ['jpg','jpeg','png','gif'])) {
+    // è un’immagine, durata fissa 3 s
+    convertImageToTs($dest, $tsPath);
+} else {
+    // è un video
+    convertToTs($dest, $tsPath);
+}
+$uploaded_ts_files[] = $tsPath;
 
-                    if (in_array($ext, ['jpg','jpeg','png','gif'])) {
-                        // è un’immagine: segmento di 3 s
-                        convertImageToTs($dest, $tsPath);
-                    } else {
-                        // è un video
-                        convertToTs($dest, $tsPath);
-                    }
-                    
-                    $uploaded_ts_files[] = $tsPath;
                     }
                 } else {
                     echo "❌ Errore nel salvataggio del file: $name<br>";
@@ -168,8 +168,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $fileName = basename($out);
         $relativeDir = getConfig('paths.uploads', 'uploads');
         echo "<br><strong>✅ Video pronto:</strong> <a href=\"{$relativeDir}/{$fileName}\" download>Scarica il video</a>";
+        // alert audio e visuale
+echo '<audio src="/musica/divertente2.mp3" autoplay></audio>';
+echo '<script>alert("🎉 Montaggio completato!");</script>';
 
-        cleanupTempFiles(array_merge($uploaded_ts_files, $segments_to_process));
+cleanupTempFiles(array_merge($uploaded_ts_files, $segments_to_process), false);
     }
 }
 ?>
