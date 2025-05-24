@@ -265,7 +265,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
             </div>
 
-            <button type="submit">🚀 Carica e Monta</butt<div class="option-group">
     <h3>📝 Testo Ticker (opzionale):</h3>
     <input type="text" name="ticker_text" placeholder="Inserisci un messaggio che scorre nel video">
 </div>
