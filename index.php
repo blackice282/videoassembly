@@ -23,14 +23,14 @@ function convertToTs($inputFile, $outputTs) {
     shell_exec($cmd);
 }
 
-function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null) {
+function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null, $tickerText = null) {
     $tsList = implode('|', $tsFiles);
     $tempMerged = "temp/merged_" . uniqid() . ".mp4";
     $cmd = "ffmpeg -i \"concat:$tsList\" -c copy -bsf:a aac_adtstoasc \"$tempMerged\"";
     shell_exec($cmd);
 
     if ($audioPath && file_exists($audioPath)) {
-        $result = process_video($tempMerged, $audioPath);
+        $result = process_video($tempMerged, $audioPath, $tickerText);
         if ($result['success']) {
             copy($result['video_url'], $outputFile);
         } else {
@@ -63,6 +63,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $audioPath = !empty($_POST['audio']) && file_exists(__DIR__ . '/musica/' . basename($_POST['audio']))
         ? realpath(__DIR__ . '/musica/' . basename($_POST['audio']))
         : null;
+    $tickerText = !empty($_POST['ticker_text']) ? trim($_POST['ticker_text']) : null;
+
 
     if ($mode === 'detect_people') {
         $deps = checkDependencies();
@@ -130,7 +132,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
 
             $out = $uploadDir . '/video_montato_' . date('Ymd_His') . '.mp4';
-            concatenateTsFiles($segment_ts, $out, $audioPath);
+            concatenateTsFiles($segment_ts, $out, $audioPath, $tickerText);
         } elseif (count($uploaded_ts_files) > 1) {
             $out = $uploadDir . '/final_video_' . date('Ymd_His') . '.mp4';
             concatenateTsFiles($uploaded_ts_files, $out, $audioPath);
@@ -263,7 +265,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 </div>
             </div>
 
-            <button type="submit">🚀 Carica e Monta</button>
+            <button type="submit">🚀 Carica e Monta</butt<div class="option-group">
+    <h3>📝 Testo Ticker (opzionale):</h3>
+    <input type="text" name="ticker_text" placeholder="Inserisci un messaggio che scorre nel video">
+</div>
+
+<button type="submit">🚀 Carica e Monta</button>
         </form>
     </div>
 </body>
