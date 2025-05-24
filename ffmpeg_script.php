@@ -32,14 +32,14 @@ function process_video(string $videoPath, ?string $backgroundAudio = null, ?stri
     $outputVideoPath = "$tempDir/processed_video.mp4";
     $filters         = [];
 
-    // ticker testuale
+    // 1) Ticker testuale
     if ($tickerText) {
         $safeText = addslashes($tickerText);
-        $filters[] = "drawtext=text='$safeText':fontcolor=white:fontsize=24:x=w-mod(t*100\,w+tw):y=h-th-30:box=1:boxcolor=black@0.5:boxborderw=5";
+        $filters[] = "drawtext=text='$safeText':fontcolor=white:fontsize=24:x=w-mod(t*100\\,w+tw):y=h-th-30:box=1:boxcolor=black@0.5:boxborderw=5";
     }
 
+    // 2) Costruisco il comando con o senza audio di background
     if ($backgroundAudio && file_exists($backgroundAudio)) {
-        // mix audio + ticker
         $filters[] = "[1:a]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st=999:d=2[aud]";
         $filter_complex = implode(",", $filters);
         $cmd = sprintf(
@@ -50,7 +50,6 @@ function process_video(string $videoPath, ?string $backgroundAudio = null, ?stri
             escapeshellarg($outputVideoPath)
         );
     } else {
-        // solo ticker
         $filter_complex = implode(",", $filters);
         $vfOption       = $filter_complex ? sprintf('-vf "%s"', $filter_complex) : '';
         $cmd = sprintf(
@@ -61,11 +60,19 @@ function process_video(string $videoPath, ?string $backgroundAudio = null, ?stri
         );
     }
 
+    // 3) Eseguo il comando
     exec($cmd . ' 2>&1', $out, $rc);
     if ($rc !== 0 || !file_exists($outputVideoPath)) {
-        return ['success' => false, 'message' => 'Process failed', 'cmd' => $cmd];
+        return [
+            'success' => false,
+            'message' => 'Process failed',
+            'cmd'     => $cmd
+        ];
     }
 
-    return ['success' => true, 'video_url' => $outputVideoPath];
+    return [
+        'success'    => true,
+        'video_url'  => $outputVideoPath
+    ];
 }
 ?>
