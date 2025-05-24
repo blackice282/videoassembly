@@ -5,9 +5,6 @@ error_reporting(E_ALL);
 
 require_once 'config.php';
 require_once 'ffmpeg_script.php';
-require_once 'people_detection.php';
-require_once 'transitions.php';
-require_once 'duration_editor.php';
 
 function createUploadsDir() {
     $up = getConfig('paths.uploads', 'uploads');
