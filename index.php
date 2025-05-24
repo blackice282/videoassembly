@@ -119,28 +119,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         if ($mode === 'detect_people' && count($segments_to_process) > 0) {
              $segment_ts = [];
--   foreach ($segments_to_process as $seg) {
--       $tsPath = $uploadDir . '/' . pathinfo($seg, PATHINFO_FILENAME) . '.ts';
--       convertToTs($seg, $tsPath);
--       if (file_exists($tsPath)) {
--           $segment_ts[] = $tsPath;
--       }
--   }
-+   $segment_ts = [];
-+   foreach ($segments_to_process as $idx => $seg) {
-+       // genero un nome unico per ogni segmento
-+       $tsPath = sprintf(
-+           '%s/segment_%02d_%s.ts',
-+           $uploadDir,
-+           $idx,
-+           uniqid()
-+       );
-+       convertToTs($seg, $tsPath);
-+       if (file_exists($tsPath)) {
-+           $segment_ts[] = $tsPath;
-+       }
-+   }
-
+ foreach ($segments_to_process as $seg) {
+       $tsPath = $uploadDir . '/' . pathinfo($seg, PATHINFO_FILENAME) . '.ts';
+       convertToTs($seg, $tsPath);
+       if (file_exists($tsPath)) {
+           $segment_ts[] = $tsPath;
+       }
+   }
+   $segment_ts = [];
+   foreach ($segments_to_process as $idx => $seg) {
+       // genero un nome unico per ogni segmento
+       $tsPath = sprintf(
+           '%s/segment_%02d_%s.ts',
+           $uploadDir,
+           $idx,
+           uniqid()
+      );
+       convertToTs($seg, $tsPath);
+       if (file_exists($tsPath)) {
+           $segment_ts[] = $tsPath;
+      }
+  }
             if (empty($segment_ts)) {
                 echo "<br>⚠️ Nessun segmento .ts generato.";
                 cleanupTempFiles($segments_to_process);
