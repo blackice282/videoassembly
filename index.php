@@ -18,11 +18,6 @@ function createUploadsDir() {
     }
 }
 
-function convertToTs($inputFile, $outputTs) {
-    $cmd = "ffmpeg -i " . escapeshellarg($inputFile) . " -c copy -bsf:v h264_mp4toannexb -f mpegts " . escapeshellarg($outputTs);
-    shell_exec($cmd);
-}
-
 function concatenateTsFiles($tsFiles, $outputFile, $audioPath = null, $tickerText = null) {
     $tsList = implode('|', $tsFiles);
     $tempMerged = "temp/merged_" . uniqid() . ".mp4";
