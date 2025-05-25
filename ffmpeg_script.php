@@ -1,11 +1,17 @@
 <?php
 /**
  * ffmpeg_script.php
- * Contiene tutte le funzioni FFmpeg: video, ticker, convertToTs, convertImageToTs, process_video, ecc.
+ * Contiene tutte le funzioni FFmpeg:
+ *   - convertToTs
+ *   - convertImageToTs
+ *   - process_video
+ *   - concatenateTsFiles
+ *   - cleanupTempFiles
  */
 
 function convertToTs(string $inputFile, string $outputTs): void {
-    // usa tutti i core CPU e preset ultrafast (per NVENC: sostituisci libx264 con h264_nvenc)
+    // usa tutti i core CPU e preset ultrafast
+    // per NVENC sostituisci libx264 con h264_nvenc
     $cmd = sprintf(
         'ffmpeg -threads 0 -preset ultrafast -i %s -c copy -bsf:v h264_mp4toannexb -f mpegts %s',
         escapeshellarg($inputFile),
@@ -15,7 +21,7 @@ function convertToTs(string $inputFile, string $outputTs): void {
 }
 
 function convertImageToTs(string $imagePath, string $outputTs, int $duration = 3): void {
-    // loop immagine, durata fissa, threading e preset ultrafast
+    // Crea un breve video TS dalla singola immagine (loop, durata fissa 3s)
     $cmd = sprintf(
         'ffmpeg -threads 0 -preset ultrafast -loop 1 -i %s -c:v libx264 -t %d -pix_fmt yuv420p -f mpegts %s',
         escapeshellarg($imagePath),
@@ -33,26 +39,28 @@ function process_video(string $videoPath, ?string $backgroundAudio = null, ?stri
     $outputVideoPath = "$tempDir/processed_video.mp4";
     $filters         = [];
 
+    // 1) Ticker testuale (drawtext)
     if ($tickerText) {
-        $safeText     = addslashes($tickerText);
-        $filters[]    = "drawtext=text='$safeText':fontcolor=white:fontsize=24:x=w-mod(t*100\\,w+tw):y=h-th-30:box=1:boxcolor=black@0.5:boxborderw=5";
+        $safeText = addslashes($tickerText);
+        $filters[] = "drawtext=text='$safeText':fontcolor=white:fontsize=24:x=w-mod(t*100\\,w+tw):y=h-th-30:box=1:boxcolor=black@0.5:boxborderw=5";
     }
 
+    // 2) Costruisco il comando con o senza audio di background
     if ($backgroundAudio && file_exists($backgroundAudio)) {
         $filters[]      = "[1:a]volume=0.6,afade=t=in:st=0:d=2,afade=t=out:st=999:d=2[aud]";
-        $filter_complex = implode(",", $filters);
+        $filterComplex  = implode(",", $filters);
         $cmd = sprintf(
-            'ffmpeg -threads 0 -preset ultrafast -i %s -i %s -filter_complex "%s" -map 0:v -map "[aud]" -shortest -c:v libx264 -c:a aac %s',
+            'ffmpeg -i %s -i %s -filter_complex "%s" -map 0:v -map "[aud]" -shortest -c:v libx264 -c:a aac %s',
             escapeshellarg($videoPath),
             escapeshellarg($backgroundAudio),
-            $filter_complex,
+            $filterComplex,
             escapeshellarg($outputVideoPath)
         );
     } else {
-        $filter_complex = implode(",", $filters);
-        $vfOption       = $filter_complex ? sprintf('-vf "%s"', $filter_complex) : '';
+        $filterComplex  = implode(",", $filters);
+        $vfOption       = $filterComplex ? sprintf('-vf "%s"', $filterComplex) : '';
         $cmd = sprintf(
-            'ffmpeg -threads 0 -preset ultrafast -i %s %s -c:v libx264 -c:a aac %s',
+            'ffmpeg -i %s %s -c:v libx264 -c:a aac %s',
             escapeshellarg($videoPath),
             $vfOption,
             escapeshellarg($outputVideoPath)
@@ -72,4 +80,39 @@ function process_video(string $videoPath, ?string $backgroundAudio = null, ?stri
         'success'   => true,
         'video_url' => $outputVideoPath
     ];
+}
+
+function concatenateTsFiles(array $tsFiles, string $outputFile, ?string $audioPath = null, ?string $tickerText = null): void {
+    // prima concateno in un merged temporaneo
+    $tsList     = implode('|', $tsFiles);
+    $tempMerged = "temp/merged_" . uniqid() . ".mp4";
+    $cmd = sprintf(
+        'ffmpeg -i "concat:%s" -c copy -bsf:a aac_adtstoasc %s',
+        $tsList,
+        escapeshellarg($tempMerged)
+    );
+    shell_exec($cmd);
+
+    // poi applico process_video (audio di background + ticker)
+    if ($audioPath || $tickerText) {
+        $res = process_video($tempMerged, $audioPath, $tickerText);
+        if ($res['success']) {
+            copy($res['video_url'], $outputFile);
+        } else {
+            copy($tempMerged, $outputFile);
+        }
+    } else {
+        // solo merged
+        copy($tempMerged, $outputFile);
+    }
+
+    @unlink($tempMerged);
+}
+
+function cleanupTempFiles(array $files, bool $keepOriginals = false): void {
+    foreach ($files as $file) {
+        if (file_exists($file) && (!$keepOriginals || strpos($file, 'uploads/') === false)) {
+            @unlink($file);
+        }
+    }
 }
