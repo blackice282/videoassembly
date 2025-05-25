@@ -1,175 +1,203 @@
 <?php
-ini_set('display_errors',1);
-ini_set('display_startup_errors',1);
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 require_once 'config.php';
 require_once 'ffmpeg_script.php';
-require_once 'people_detection.php';   // per detectMovingPeople()
-require_once 'duration_editor.php';    // per adaptSegmentsToDuration()
+require_once 'people_detection.php';
+require_once 'transitions.php';
+require_once 'duration_editor.php';
 
-function createUploadsDir(): void {
-    $u = getConfig('paths.uploads','uploads');
-    $t = getConfig('paths.temp','temp');
-    if (!file_exists($u)) mkdir($u,0777,true);
-    if (!file_exists($t)) mkdir($t,0777,true);
+function createUploadsDir() {
+    if (!file_exists(getConfig('paths.uploads', 'uploads'))) {
+        mkdir(getConfig('paths.uploads', 'uploads'), 0777, true);
+    }
+    if (!file_exists(getConfig('paths.temp', 'temp'))) {
+        mkdir(getConfig('paths.temp', 'temp'), 0777, true);
+    }
 }
 
-if ($_SERVER['REQUEST_METHOD']==='POST') {
+function cleanupTempFiles(array $files, bool $keepOriginals = false): void {
+    foreach ($files as $file) {
+        if (file_exists($file) && (!$keepOriginals || strpos($file, 'uploads/') === false)) {
+            unlink($file);
+        }
+    }
+}
+
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
     createUploadsDir();
-    set_time_limit(0);
+    set_time_limit(300);
 
-    // --- Parametri da form ---
-    $mode       = $_POST['mode'] ?? 'simple';
-    $targetDur  = (!empty($_POST['duration']) && is_numeric($_POST['duration']))
-                  ? intval($_POST['duration'])*60
-                  : 0;
-    $audioPath  = !empty($_POST['audio'])
-                  ? realpath(__DIR__.'/musica/'.basename($_POST['audio']))
-                  : null;
-    $tickerText = trim($_POST['ticker_text'] ?? '');
+    $mode = $_POST['mode'] ?? 'simple';
+    // Durata massima in secondi (0 = originale)
+    $targetDuration = (!empty($_POST['duration']) && is_numeric($_POST['duration']))
+        ? intval($_POST['duration']) * 60
+        : 0;
 
-    // --- Upload e generazione .ts ---
-    echo "<div style='padding:10px;background:#eef;'><strong>🔄 Elaborazione...</strong><br>";
-    $uploaded = [];
-    $tsFiles  = [];
-    $segments = [];
+    // Percorso assoluto dell’audio di sottofondo (se selezionato)
+    if (!empty($_POST['audio'])) {
+        $sel = basename($_POST['audio']);
+        $audioPath = __DIR__ . '/musica/' . $sel;
+        if (!file_exists($audioPath)) {
+            $audioPath = null;
+        }
+    } else {
+        $audioPath = null;
+    }
 
-    foreach ($_FILES['files']['tmp_name'] as $i => $tmp) {
-        if ($_FILES['files']['error'][$i]===UPLOAD_ERR_OK) {
+    // Array per tracciare upload e .ts generati
+    $uploaded_files    = [];
+    $segments_to_process = [];
+
+    echo "<div style='background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+    echo "<strong>🔄 Caricamento file...</strong><br>";
+
+    // 1) Carico i file
+    foreach ($_FILES['files']['tmp_name'] as $i => $tmp_name) {
+        if ($_FILES['files']['error'][$i] === UPLOAD_ERR_OK) {
             $name = basename($_FILES['files']['name'][$i]);
-            $dest = getConfig('paths.uploads','uploads')."/$name";
-            if (move_uploaded_file($tmp,$dest)) {
-                echo "✅ Caricato: $name<br>";
-                $uploaded[] = $dest;
-                // se detect_people, raccolgo segmenti
-                if ($mode==='detect_people') {
-                    $r = detectMovingPeople($dest);
-                    if ($r['success']) {
-                        $segments = array_merge($segments,$r['segments']);
-                    }
-                } else {
-                    // video o immagine
-                    $ext = strtolower(pathinfo($name,PATHINFO_EXTENSION));
-                    $ts  = pathinfo($name,PATHINFO_FILENAME).'.ts';
-                    $out = getConfig('paths.uploads','uploads')."/$ts";
-                    if (in_array($ext,['jpg','jpeg','png','gif'])) {
-                        convertImageToTs($dest,$out);
-                    } else {
-                        convertToTs($dest,$out);
-                    }
-                    $tsFiles[] = $out;
-                }
+            $dest = getConfig('paths.uploads', 'uploads') . '/' . $name;
+            if (move_uploaded_file($tmp_name, $dest)) {
+                echo "✅ File caricato: {$name}<br>";
+                $uploaded_files[] = $dest;
+            } else {
+                echo "❌ Errore nel salvataggio: {$name}<br>";
             }
         }
     }
     echo "</div>";
 
-    // --- Se detect_people, produco .ts da segmenti ---
-    if ($mode==='detect_people' && count($segments)>0) {
-        if ($targetDur>0) {
-            $segments = adaptSegmentsToDuration($segments,$targetDur);
+    // 2) Pre-analisi in modalità detect_people
+    if ($mode === 'detect_people') {
+        echo "<div style='background: #eef7ff; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+        echo "<strong>🔍 Pre-analisi rilevamento persone...</strong><br>";
+        foreach ($uploaded_files as $file) {
+            $res = detectMovingPeople($file);
+            if ($res['success']) {
+                $segments_to_process = array_merge($segments_to_process, $res['segments']);
+                echo "  – Trovati " . count($res['segments']) . " segmenti in " . basename($file) . "<br>";
+            } else {
+                echo "  ⚠️ Errore analisi " . basename($file) . ": " . htmlspecialchars($res['message']) . "<br>";
+            }
         }
-        foreach ($segments as $idx=>$seg) {
-            $tsOut = getConfig('paths.uploads','uploads')."/seg{$idx}.ts";
-            convertToTs($seg,$tsOut);
-            $tsFiles[] = $tsOut;
+        echo "</div>";
+
+        if (empty($segments_to_process)) {
+            echo "<div style='background: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; color: #856404;'>";
+            echo "⚠️ Nessuna persona rilevata in nessun video: interrompo il montaggio.";
+            echo "</div>";
+            return;
         }
     }
 
-    // --- Concatenazione finale ---
-    if (count($tsFiles)>1) {
-        $outfile = getConfig('paths.uploads','uploads')
-                 .'/video_'.date('Ymd_His').'.mp4';
-        concatenateTsFiles($tsFiles,$outfile,$audioPath,$tickerText);
+    // 3) Conversione in .ts
+    $uploaded_ts_files = [];
+    echo "<div style='background: #f0fff4; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+    echo "<strong>🔄 Conversione in .ts...</strong><br>";
 
-        $fn  = basename($outfile);
-        $dir = getConfig('paths.uploads','uploads');
-        echo "<br><strong>✅ Montaggio finito:</strong> "
-           ."<a href=\"{$dir}/{$fn}\" download>Scarica il video</a>";
-
-        // alert audio + visivo
-        echo '<audio src="/musica/finish.mp3" autoplay></audio>';
-        echo '<script>alert("🎉 Montaggio completato!");</script>';
-
-        cleanupTempFiles($tsFiles);
+    if ($mode === 'detect_people') {
+        // converto solo i segmenti trovati
+        foreach ($segments_to_process as $idx => $segment) {
+            $tsPath = getConfig('paths.uploads', 'uploads')
+                    . '/segment_' . $idx . '_' . date('His') . '.ts';
+            convertToTs($segment, $tsPath);
+            if (file_exists($tsPath)) {
+                echo "  – Segmento {$idx} convertito<br>";
+                $uploaded_ts_files[] = $tsPath;
+            }
+        }
     } else {
-        echo "<br>⚠️ Carica almeno due file (video o immagini).";
+        // semplice: converto tutti i video caricati
+        foreach ($uploaded_files as $file) {
+            $basename = pathinfo($file, PATHINFO_FILENAME);
+            $tsPath = getConfig('paths.uploads', 'uploads') . "/{$basename}.ts";
+            convertToTs($file, $tsPath);
+            if (file_exists($tsPath)) {
+                echo "  – " . basename($file) . " → {$basename}.ts<br>";
+                $uploaded_ts_files[] = $tsPath;
+            }
+        }
     }
-    exit;
+    echo "</div>";
+
+    // 4) Concatenazione e mix audio/ticker
+    $outDir = getConfig('paths.uploads', 'uploads');
+    $outFile = $mode === 'detect_people'
+        ? "{$outDir}/video_montato_" . date('Ymd_His') . ".mp4"
+        : "{$outDir}/final_video_"   . date('Ymd_His') . ".mp4";
+
+    echo "<div style='background: #e8f0fe; padding: 10px; border-radius: 5px; margin: 10px 0;'>";
+    echo "<strong>🔗 Montaggio finale...</strong><br>";
+    concatenateTsFiles($uploaded_ts_files, $outFile, $audioPath);
+    echo "</div>";
+
+    // 5) Link di download
+    $fileName    = basename($outFile);
+    $relativeDir = getConfig('paths.uploads', 'uploads');
+    echo "<div style='background: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; color: #155724;'>";
+    echo "✅ Montaggio completato: <a href=\"{$relativeDir}/{$fileName}\" download>Scarica il video</a>";
+    echo "</div>";
+
+    // 6) Pulizia temp
+    cleanupTempFiles($uploaded_ts_files, getConfig('system.keep_original', true));
+    cleanupTempFiles($segments_to_process, getConfig('system.keep_original', true));
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <title>🎬 VideoAssembly</title>
-  <style>
-    body { font-family:Arial,sans-serif; background:#f4f4f4; padding:20px; max-width:800px; margin:auto; }
-    h1 { text-align:center; color:#333; }
-    .upload-container { background:#fff; padding:20px; border-radius:5px; border:2px dashed #ccc; }
-    .options { background:#f8f9fa; padding:15px; margin-top:15px; border-radius:5px; }
-    .option-group { margin-bottom:15px; }
-    button { background:#4CAF50; color:white; padding:12px 20px; border:none; border-radius:4px; cursor:pointer; font-size:16px; }
-    button:hover { background:#45a049; }
-  </style>
-  <script>
-    function previewAudio(file){
-      const a=document.getElementById('audioPreview');
-      if(file){ a.src='musica/'+encodeURIComponent(file); a.style.display='block'; a.load(); }
-      else a.style.display='none';
-    }
-  </script>
+    <meta charset="UTF-8">
+    <title>VideoAssembly</title>
+    <style>
+      body { font-family: Arial,sans-serif; max-width:800px; margin:20px auto; }
+      .upload-container { border:2px dashed #ccc; padding:20px; border-radius:5px; }
+      .upload-container h3 { margin-top:0; }
+      button { background:#4CAF50; color:#fff; padding:12px 20px; border:none; border-radius:4px; cursor:pointer; }
+      button:hover { background:#45a049; }
+    </style>
 </head>
 <body>
-  <h1>🎬 VideoAssembly</h1>
-  <div class="upload-container">
-    <form method="POST" enctype="multipart/form-data">
-      <div class="option-group">
-        <label>📂 Carica file (video o immagini):</label>
-        <input type="file" name="files[]" multiple accept="video/*,image/*" required>
-      </div>
-      <div class="options">
-        <div class="option-group">
-          <label>⚙️ Modalità:</label><br>
-          <label><input type="radio" name="mode" value="simple" checked> Montaggio semplice</label>
-          <label><input type="radio" name="mode" value="detect_people"> Rilevamento persone</label>
-        </div>
-        <div class="option-group">
-          <label>⏱️ Durata massima (min):</label>
-          <select name="duration">
-            <option value="0">Originale</option>
-            <option value="1">1</option>
-            <option value="3">3</option>
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="15">15</option>
-          </select>
-        </div>
-        <div class="option-group">
-          <label>🎵 Musica di sottofondo:</label>
-          <select name="audio" onchange="previewAudio(this.value)">
-            <option value="">-- Nessuna --</option>
-            <?php
-              $m=__DIR__.'/musica';
-              if(is_dir($m)){
-                foreach(scandir($m) as $f){
-                  if(preg_match('/\.(mp3|wav)$/i',$f)){
-                    echo "<option value=\"$f\">$f</option>";
-                  }
-                }
+    <h1>🎬 VideoAssembly</h1>
+    <div class="upload-container">
+      <form method="POST" enctype="multipart/form-data">
+        <h3>📂 Carica i tuoi video</h3>
+        <input type="file" name="files[]" multiple required accept="video/*"><br><br>
+
+        <h3>⚙️ Modalità</h3>
+        <label><input type="radio" name="mode" value="simple" checked> Montaggio semplice</label><br>
+        <label><input type="radio" name="mode" value="detect_people"> Rilevamento persone</label><br><br>
+
+        <h3>⏱️ Durata (minuti)</h3>
+        <select name="duration">
+          <option value="0">Originale</option>
+          <option value="1">1</option>
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="10">10</option>
+          <option value="15">15</option>
+        </select><br><br>
+
+        <h3>🎵 Musica di sottofondo</h3>
+        <select name="audio">
+          <option value="">-- Nessuna --</option>
+          <?php
+          $musicaDir = __DIR__ . '/musica';
+          foreach (is_dir($musicaDir) ? scandir($musicaDir) : [] as $f) {
+              if (preg_match('/\.(mp3|wav)$/i', $f)) {
+                  echo "<option value=\"" . htmlspecialchars($f) . "\">$f</option>";
               }
-            ?>
-          </select>
-          <audio id="audioPreview" controls style="display:none;margin-top:10px;"></audio>
-        </div>
-        <div class="option-group">
-          <label>📝 Testo ticker (opzionale):</label>
-          <input type="text" name="ticker_text" placeholder="Messaggio che scorre">
-        </div>
-      </div>
-      <button type="submit">🚀 Carica e Monta</button>
-    </form>
-  </div>
+          }
+          ?>
+        </select><br><br>
+
+        <h3>📝 Testo Ticker (opzionale)</h3>
+        <input type="text" name="ticker_text" placeholder="Testo che scorre sul video"><br><br>
+
+        <button type="submit">🚀 Carica e Monta</button>
+      </form>
+    </div>
 </body>
 </html>
