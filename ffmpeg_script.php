@@ -1,11 +1,18 @@
 // index.php
 <?php
-// ... altre parti del codice ...
+// Carica configurazione generale
+require_once __DIR__ . '/config.php';
 
-// Assicuriamoci di non ridefinire la funzione
+// Include transitions.php solo se presente
+$transitionsFile = __DIR__ . '/transitions.php';
+if (file_exists($transitionsFile)) {
+    require_once $transitionsFile;
+}
+
+// Definizione unica di cleanupTempFiles
 if (!function_exists('cleanupTempFiles')) {
     /**
-     * Rimuove file temporanei in generale
+     * Rimuove file temporanei
      *
      * @param string[] $files
      * @param bool $keepOriginals
@@ -19,17 +26,16 @@ if (!function_exists('cleanupTempFiles')) {
     }
 }
 
-// Inclusione dello script FFmpeg (usa la stessa funzione guardata)
+// Includi lo script FFmpeg (usa stessa funzione guardata)
 require_once __DIR__ . '/ffmpeg_script.php';
 
-// ... resto di index.php ...
+// ... altre parti del codice di index.php ...
 ?>
+
 
 // ffmpeg_script.php
 <?php
-// ... eventuali require/include aggiuntivi ...
-
-// Definizione guardata: se già esiste, non verrà ridefinita
+// Assicuriamoci di non ridefinire cleanupTempFiles
 if (!function_exists('cleanupTempFiles')) {
     /**
      * Rimuove file temporanei specifici per FFmpeg
@@ -46,8 +52,12 @@ if (!function_exists('cleanupTempFiles')) {
     }
 }
 
-// Esempio di utilizzo:
-// cleanupTempFiles($filesDaEliminare);
+// Funzioni specifiche per FFmpeg
+function runFfmpegCommand(string $cmd): void {
+    // implementazione del comando
+    exec($cmd, $output, $returnCode);
+    // gestione output e errori...
+}
 
 // ... resto di ffmpeg_script.php ...
 ?>
