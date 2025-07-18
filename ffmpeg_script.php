@@ -2,42 +2,52 @@
 <?php
 // ... altre parti del codice ...
 
-// Funzione di pulizia temporanei per uso generale
-function cleanupTempFiles(array $files, bool $keepOriginals = false): void {
-    foreach ($files as $f) {
-        if (file_exists($f) && (!$keepOriginals || strpos($f, 'uploads/') === false)) {
-            @unlink($f);
+// Assicuriamoci di non ridefinire la funzione
+if (!function_exists('cleanupTempFiles')) {
+    /**
+     * Rimuove file temporanei in generale
+     *
+     * @param string[] $files
+     * @param bool $keepOriginals
+     */
+    function cleanupTempFiles(array $files, bool $keepOriginals = false): void {
+        foreach ($files as $f) {
+            if (file_exists($f) && (!$keepOriginals || strpos($f, 'uploads/') === false)) {
+                @unlink($f);
+            }
         }
     }
 }
 
-// Esempio di chiamata in index.php
-// cleanupTempFiles($arrayDiFile);
+// Inclusione dello script FFmpeg (usa la stessa funzione guardata)
+require_once __DIR__ . '/ffmpeg_script.php';
 
 // ... resto di index.php ...
 ?>
 
-
 // ffmpeg_script.php
 <?php
-// ... eventuali require/include ...
+// ... eventuali require/include aggiuntivi ...
 
-/**
- * Versione specializzata della pulizia per file FFmpeg
- * @param string[] $files
- * @param bool $keepOriginals
- */
-function cleanupFfmpegTempFiles(array $files, bool $keepOriginals = false): void {
-    foreach ($files as $f) {
-        if (file_exists($f) && (!$keepOriginals || strpos($f, 'uploads/') === false)) {
-            @unlink($f);
+// Definizione guardata: se già esiste, non verrà ridefinita
+if (!function_exists('cleanupTempFiles')) {
+    /**
+     * Rimuove file temporanei specifici per FFmpeg
+     *
+     * @param string[] $files
+     * @param bool $keepOriginals
+     */
+    function cleanupTempFiles(array $files, bool $keepOriginals = false): void {
+        foreach ($files as $f) {
+            if (file_exists($f) && (!$keepOriginals || strpos($f, 'uploads/') === false)) {
+                @unlink($f);
+            }
         }
     }
 }
 
-// Sostituisci tutte le chiamate a cleanupTempFiles() con cleanupFfmpegTempFiles()
-// Esempio:
-// cleanupFfmpegTempFiles($filesDaPulire);
+// Esempio di utilizzo:
+// cleanupTempFiles($filesDaEliminare);
 
 // ... resto di ffmpeg_script.php ...
 ?>
