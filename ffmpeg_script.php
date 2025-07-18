@@ -4,6 +4,7 @@
 if (!function_exists('cleanupTempFiles')) {
     /**
      * Rimuove file temporanei (generico e FFmpeg)
+     *
      * @param string[] $files
      * @param bool $keepOriginals
      */
@@ -18,6 +19,7 @@ if (!function_exists('cleanupTempFiles')) {
 
 /**
  * Esegue un comando FFmpeg catturandone output ed errori
+ *
  * @param string $cmd
  * @throws RuntimeException se FFmpeg restituisce errore
  */
@@ -30,6 +32,7 @@ function runFfmpegCommand(string $cmd): void {
 
 /**
  * Converte un file video in formato .ts
+ *
  * @param string $inputPath
  * @param string $outputTsPath
  */
@@ -44,6 +47,7 @@ function convertToTs(string $inputPath, string $outputTsPath): void {
 
 /**
  * Concatena segmenti .ts, aggiunge traccia audio e genera output.mp4
+ *
  * @param string[]      $tsFiles
  * @param string        $outputPath
  * @param string|null   $audioPath
